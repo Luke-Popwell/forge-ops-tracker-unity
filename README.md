@@ -71,7 +71,7 @@ using ForgeOpsTracker.Unity;
 // or the first line of your bootstrap scene's startup script.
 ForgeOpsTrackerClient.Init(c =>
 {
-    c.Dsn = "https://<api_key>@your-forgeops-host/api/v1/events"; // or set FORGE_OPS_DSN
+    c.Dsn = "https://<api_key>@getforgeops.net/api/v1/events"; // or set FORGE_OPS_DSN
     c.EnvironmentName = "production";
 });
 ```

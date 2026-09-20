@@ -10,7 +10,7 @@ namespace ForgeOpsTracker.Unity
     /// choice.
     ///
     ///     ForgeOpsTrackerClient.Init(c => {
-    ///         c.Dsn = "https://&lt;api_key&gt;@your-forgeops-host/api/v1/events";
+    ///         c.Dsn = "https://&lt;api_key&gt;@getforgeops.net/api/v1/events";
     ///         c.EnvironmentName = "production";
     ///     });
     ///
