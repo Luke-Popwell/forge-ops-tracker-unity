@@ -1,0 +1,10 @@
+{
+  "name": "com.forgeops.tracker",
+  "version": "0.7.0",
+  "displayName": "ForgeOps Tracker",
+  "description": "Error reporting client for a ForgeOps instance.",
+  "unity": "2021.3",
+  "license": "UNLICENSED",
+  "keywords": ["error reporting", "crash reporting", "forgeops"],
+  "dependencies": {}
+}
