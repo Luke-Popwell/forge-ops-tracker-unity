@@ -58,7 +58,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.7.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.8.0`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 
@@ -337,6 +337,30 @@ any other loosely-typed value at all (documented directly in Unity's own manual)
 the shape this client's freeform `context` field needs. Pulling in a third-party JSON package
 (commonly Newtonsoft's, itself often added via Unity's own package registry) would be this
 package's only dependency for a problem a ~100-line writer solves outright, so it wasn't added.
+
+## Database errors
+
+Games rarely run SQL against a server, but a local database plugin's exception can carry the statement. The event includes the names of the tables and views (and any stored procedure) that SQL touched, so the issue tells you where to start looking. This is on by default and sends identifiers only, never values. The statement is read from a `Statement`, `Sql` or `CommandText` property on the exception or anything it wraps, and from `exception.Data["forge_ops_sql"]`, which works for any exception type.
+
+To also send the SQL statement itself, opt in. Every string and number is replaced by `?` before it
+leaves your process (`WHERE email = 'a@b.co' AND id = 42` is sent as `WHERE email = ? AND id = ?`),
+and ForgeOps masks it again on arrival:
+
+```csharp
+catch (Exception e)
+{
+    e.Data["forge_ops_sql"] = query;
+    ForgeOpsTrackerClient.CaptureException(e);
+}
+
+// Opt in to also sending the masked statement (default false).
+ForgeOpsTrackerClient.Init(c => c.CaptureSqlStatement = true);
+```
+
+Each ForgeOps project also has its own "Capture the SQL behind database errors" setting. Turn it off
+there and the statement is never stored for that project, whatever this flag says; the names are
+still kept. A view and a table are written the same way in SQL, so both show as tables/views; the
+database's own error message usually settles which it was.
 
 ## Running the tests
 

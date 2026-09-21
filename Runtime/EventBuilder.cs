@@ -87,7 +87,8 @@ namespace ForgeOpsTracker.Unity
                 exception.StackTrace ?? string.Empty,
                 context,
                 user,
-                breadcrumbs);
+                breadcrumbs,
+                SqlStatement.FindIn(exception));
             return payload;
         }
 
@@ -111,7 +112,7 @@ namespace ForgeOpsTracker.Unity
             return Build(configuration, exceptionClass, message, stackTrace ?? string.Empty, null, user, breadcrumbs);
         }
 
-        private static Dictionary<string, object> Build(Configuration configuration, string exceptionClass, string message, string stackTraceText, Dictionary<string, object> context, Dictionary<string, object> user, List<Dictionary<string, object>> breadcrumbs)
+        private static Dictionary<string, object> Build(Configuration configuration, string exceptionClass, string message, string stackTraceText, Dictionary<string, object> context, Dictionary<string, object> user, List<Dictionary<string, object>> breadcrumbs, string rawSql = null)
         {
             var payload = new Dictionary<string, object>
             {
@@ -147,7 +148,30 @@ namespace ForgeOpsTracker.Unity
                 payload["breadcrumbs"] = ScrubbedBreadcrumbs(configuration, breadcrumbs);
             }
 
+            AttachSql(configuration, payload, rawSql);
+
             return payload;
+        }
+
+        // See SqlStatement for what's read off the exception and how it's masked. The statement itself
+        // only goes out when CaptureSqlStatement is on; the extracted names go out on their own
+        // (CaptureSqlObjects) so an issue can still name the procedure or view involved.
+        private static void AttachSql(Configuration configuration, Dictionary<string, object> payload, string rawSql)
+        {
+            if (!configuration.CaptureSqlObjects && !configuration.CaptureSqlStatement) return;
+
+            var masked = SqlStatement.MaskStatement(rawSql);
+            if (masked == null) return;
+
+            var objects = SqlStatement.Objects(masked);
+            if (objects != null && configuration.CaptureSqlObjects)
+            {
+                payload["sql_objects"] = objects;
+            }
+            if (configuration.CaptureSqlStatement)
+            {
+                payload["sql_statement"] = configuration.ScrubPii ? PiiScrubber.ScrubString(masked) : masked;
+            }
         }
 
         // A breadcrumb's message and data are free text (a log line, whatever the game recorded);

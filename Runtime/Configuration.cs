@@ -69,6 +69,21 @@ namespace ForgeOpsTracker.Unity
         public bool CaptureSourceContext { get; set; } = true;
 
         /// <summary>
+        /// When an exception carries the SQL behind a failed database call (attached under
+        /// <c>exception.Data["forge_ops_sql"]</c>, or exposed as a Statement/Sql/CommandText
+        /// property by the database library), send the names of the stored procedure, table and
+        /// view that SQL touched, so an issue says where to start looking. Names are identifiers,
+        /// never values, which is why this defaults on. <see cref="CaptureSqlStatement"/> is the
+        /// separate, opt-in step of also sending the statement itself, with every string and number
+        /// replaced by "?"; off by default because even a masked statement describes your schema,
+        /// and ForgeOps' own per-project setting is what durably governs whether the server stores
+        /// it. See <see cref="SqlStatement"/>.
+        /// </summary>
+        public bool CaptureSqlObjects { get; set; } = true;
+
+        public bool CaptureSqlStatement { get; set; }
+
+        /// <summary>
         /// Whether <see cref="ForgeOpsTrackerClient.AddBreadcrumb"/> records anything at all, and
         /// whether the console (log message) breadcrumb source is active. On by default, matching
         /// every other client in this repo.
