@@ -19,8 +19,16 @@ namespace ForgeOpsTracker.Unity
     /// </summary>
     public static class ForgeOpsTrackerClient
     {
-        private static readonly Configuration Config = new Configuration();
+        // Internal, not private, only so EditMode tests can configure the client without Init (which
+        // creates a GameObject Unity forbids outside play mode); see UseQueueForTesting.
+        internal static readonly Configuration Config = new Configuration();
         private static DeliveryQueue _queue;
+
+        // Every trace started and not yet finished, oldest first. A trace is an explicit object rather
+        // than per-thread state (see Trace), so "the trace an error belongs to" is the most recently
+        // started one still open: the same one-game, one-flow-at-a-time reasoning CurrentUser uses.
+        private static readonly List<Trace> OpenTraces = new List<Trace>();
+        private const int MaxOpenTraces = 32;
 
         // The shared breadcrumb trail: see BreadcrumbBuffer for why one shared trail, not per-thread.
         // Created alongside Config (a static readonly, one instance for the process) so a breadcrumb
@@ -69,14 +77,20 @@ namespace ForgeOpsTracker.Unity
         ///
         /// <paramref name="user"/> defaults to whatever <see cref="SetUser"/> last established, if
         /// anything; pass one explicitly to override that for this one report.
+        ///
+        /// <paramref name="trace"/> links the report to that trace: its id goes on the event as
+        /// <c>trace_id</c>, so ForgeOps shows it next to a backend error from the same request (see
+        /// <see cref="Trace.StartHttpSpan"/>). Null (the default) means the most recently started trace
+        /// that hasn't finished yet, if any (see <see cref="CurrentTraceId"/>); pass one explicitly when
+        /// several overlap. No open trace, no <c>trace_id</c>: the event is exactly what it was before.
         /// </summary>
-        public static void CaptureException(Exception exception, Dictionary<string, object> context = null, Dictionary<string, object> user = null)
+        public static void CaptureException(Exception exception, Dictionary<string, object> context = null, Dictionary<string, object> user = null, Trace trace = null)
         {
             if (_queue == null || !Config.IsEnabled()) return;
 
             try
             {
-                var payload = EventBuilder.BuildFromException(Config, exception, context, user ?? CurrentUser, Breadcrumbs.All());
+                var payload = EventBuilder.BuildFromException(Config, exception, context, user ?? CurrentUser, Breadcrumbs.All(), (trace ?? CurrentTrace)?.TraceId);
                 _queue.Push(payload);
             }
             catch (Exception ex)
@@ -260,7 +274,9 @@ namespace ForgeOpsTracker.Unity
         /// Distributed tracing: one flow's own call tree (a level load, a save read, a shop opening and
         /// what it triggered), sent to ForgeOps only when the whole thing took at least
         /// <see cref="Configuration.TraceCaptureThresholdSeconds"/> (1s), so fast flows cost nothing on
-        /// the wire. Traces are per game: nothing is propagated across services.
+        /// the wire. Make each request with <see cref="Trace.StartHttpSpan"/> or
+        /// <see cref="Trace.MeasureHttpSpan{T}"/> and your backend continues the trace from their
+        /// <c>traceparent</c> header; errors captured while a trace is open carry its id.
         ///
         ///     using (var trace = ForgeOpsTrackerClient.StartTrace("Level1.Load"))
         ///     {
@@ -268,10 +284,11 @@ namespace ForgeOpsTracker.Unity
         ///         using (trace.StartSpan("Assets.Load", "job")) { LoadAssets(); }
         ///     }
         ///
-        /// Disposing the trace finishes it, even if the block throws. When
-        /// <see cref="Configuration.TrackTracing"/> is false, reporting isn't enabled for this
-        /// environment, or before <see cref="Init"/>, this returns a disabled trace whose every
-        /// method is a no-op (the body still runs), so callers never null-check. This client has no web
+        /// Disposing the trace finishes it, even if the block throws. When reporting isn't enabled for
+        /// this environment, or before <see cref="Init"/>, this returns a disabled trace whose every
+        /// method is a no-op (the body still runs, and it has no <see cref="Trace.TraceId"/>), so
+        /// callers never null-check. When <see cref="Configuration.TrackTracing"/> is false it returns a
+        /// trace that records nothing but still has an id for errors and the <c>traceparent</c> header. This client has no web
         /// framework integration, so nothing starts a trace or records a span automatically. Finishing
         /// a slow trace queues it for delivery from the driver's next <c>Update</c> (a
         /// <c>UnityWebRequest</c> can only run from Unity's main thread), so a trace finished as the app
@@ -280,9 +297,36 @@ namespace ForgeOpsTracker.Unity
         public static Trace StartTrace(string name)
         {
             var queue = _queue;
-            if (queue == null || !Config.TrackTracing || !Config.IsEnabled()) return new Trace(name, Config, null);
-            return new Trace(name, Config, payload => queue.Push(payload, DeliveryTarget.Spans, null));
+            if (queue == null || !Config.IsEnabled()) return new Trace(name, Config, null);
+
+            var trace = new Trace(name, Config, payload => queue.Push(payload, DeliveryTarget.Spans, null), Config.TrackTracing, finished =>
+            {
+                lock (OpenTraces) OpenTraces.Remove(finished);
+            });
+            lock (OpenTraces)
+            {
+                OpenTraces.Add(trace);
+                // A trace that is never finished would otherwise be held forever; the oldest goes first.
+                if (OpenTraces.Count > MaxOpenTraces) OpenTraces.RemoveAt(0);
+            }
+            return trace;
         }
+
+        /// <summary>The most recently started trace that hasn't finished, if any: what an error captured right now belongs to.</summary>
+        internal static Trace CurrentTrace
+        {
+            get
+            {
+                lock (OpenTraces) return OpenTraces.Count > 0 ? OpenTraces[OpenTraces.Count - 1] : null;
+            }
+        }
+
+        /// <summary>
+        /// The id of the most recently started trace that hasn't finished (32 lowercase hex
+        /// characters), or null. Errors captured right now, including the uncaught exceptions
+        /// <see cref="ForgeOpsTrackerHooks"/> reports, carry it as <c>trace_id</c>.
+        /// </summary>
+        public static string CurrentTraceId() => CurrentTrace?.TraceId;
 
         /// <summary>
         /// Manually attaches an affected user to whatever gets reported from here on (an explicit
@@ -298,9 +342,21 @@ namespace ForgeOpsTracker.Unity
             CurrentUser = (user == null || user.Count == 0) ? null : user;
         }
 
+        /// <summary>
+        /// Test-only: what <see cref="Init"/> does minus the driver and hooks (the driver needs a
+        /// GameObject, which Unity forbids outside play mode), so captures and traces land on a queue the
+        /// test can read.
+        /// </summary>
+        internal static void UseQueueForTesting(DeliveryQueue queue)
+        {
+            _queue = queue;
+        }
+
         /// <summary>Test-only: resets module state between test cases.</summary>
         internal static void ResetForTesting()
         {
+            _queue = null;
+            lock (OpenTraces) OpenTraces.Clear();
             CurrentUser = null;
             Breadcrumbs.Clear();
             Performance.Reset();

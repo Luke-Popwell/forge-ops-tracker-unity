@@ -58,7 +58,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.8.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.9.0`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 
@@ -232,7 +232,8 @@ delivery's outcome are the parts that genuinely need one.
 One flow's own call tree (a level load, a save read, a shop opening and what it triggered), shown as
 a span tree on ForgeOps. A trace is sent only when the whole flow took at least
 `Configuration.TraceCaptureThresholdSeconds` (1 by default), so fast flows cost nothing on the wire.
-Traces are per game; nothing is propagated across services.
+A request your game makes inside a trace can carry the trace on to your backend, so an error in the
+game links to the backend request it caused (see "Connecting game errors to your backend" below).
 
 ```csharp
 using (var trace = ForgeOpsTrackerClient.StartTrace("Level1.Load"))
@@ -252,7 +253,9 @@ from any thread. Nesting is tracked per thread: a span opened by `MeasureSpan` o
 parent of any span recorded on the same thread inside it, and a span recorded from another thread
 parents under the root. When tracing is off, reporting isn't enabled for the environment, or `Init`
 hasn't run, `StartTrace` returns a disabled trace whose every method is a no-op (the body still runs),
-so callers never null-check. `kind` outside that list is sent as `other`, since the server rejects a
+so callers never null-check (a disabled trace has no `TraceId`). With `TrackTracing = false`,
+`StartTrace` returns a trace that records nothing but still has its id, for errors and the
+`traceparent` header below. `kind` outside that list is sent as `other`, since the server rejects a
 whole trace over one unknown kind. A trace holds at most 500 spans.
 
 This client has no web framework integration, so **nothing starts a trace or records a span
@@ -260,6 +263,95 @@ automatically**. Delivery is the same as everything else here: finishing a slow 
 payload on the `DeliveryQueue`, and the driver sends it from Unity's main thread on a later frame (a
 `UnityWebRequest` can only run there), so a trace finished as the app is suspended or quit is not
 delivered. Turn the feature off with `TrackTracing = false`.
+
+### Connecting game errors to your backend
+
+Trace and span ids use the [W3C Trace Context](https://www.w3.org/TR/trace-context/) format (a 32
+character lowercase hex trace id, 16 character span ids). Start an HTTP span for a request made inside
+a trace and it hands you a `traceparent` header (`00-<trace id>-<span id>-01`) to send, and is recorded
+as an `http` span named after the request's method and host; the header's parent id is that span's own
+id, so the backend's own spans for the request nest under it. An error captured while the trace is open
+carries its `trace_id`, which is what links it to the backend error from the same request. A shop
+purchase in a coroutine:
+
+```csharp
+IEnumerator Purchase(string itemId)
+{
+    const string url = "https://api.example.com/purchases";
+    using (var trace = ForgeOpsTrackerClient.StartTrace("Shop.Purchase"))
+    using (var request = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST))
+    {
+        request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes($"{{\"item\":\"{itemId}\"}}"));
+        request.downloadHandler = new DownloadHandlerBuffer();
+        request.SetRequestHeader("Content-Type", "application/json");
+
+        var span = trace.StartHttpSpan("POST", url);
+        span.AddHeadersTo(request); // leaves a traceparent the request already has alone
+        yield return request.SendWebRequest();
+        span.Finish(new Dictionary<string, object> { ["status"] = (int)request.responseCode });
+
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            // Carries this trace's trace_id: it is the most recently started trace still open.
+            ForgeOpsTrackerClient.CaptureException(new Exception($"purchase failed: {request.error}"), trace: trace);
+        }
+    }
+}
+```
+
+For a blocking call (a plain `HttpClient` on a worker thread, say), `MeasureHttpSpan` times the call
+and hands the headers to your code, recording the span even if it throws:
+
+```csharp
+var json = trace.MeasureHttpSpan("GET", url, headers => Fetch(url, headers));
+```
+
+The public API:
+
+```csharp
+// Trace
+public string TraceId { get; }                        // null on a disabled trace
+public HttpSpan StartHttpSpan(string method, string url);
+public T MeasureHttpSpan<T>(string method, string url, Func<Dictionary<string, string>, T> body, Dictionary<string, object> data = null);
+public void MeasureHttpSpan(string method, string url, Action<Dictionary<string, string>> body, Dictionary<string, object> data = null);
+
+// HttpSpan (IDisposable: disposing it finishes it)
+public string SpanId { get; }
+public Dictionary<string, string> Headers { get; }   // traceparent, or empty
+public string Traceparent { get; }                    // the header value, or null
+public void AddHeadersTo(UnityWebRequest request);
+public void Finish(Dictionary<string, object> data = null);   // any thread; only the first call counts
+
+// ForgeOpsTrackerClient
+public static void CaptureException(Exception exception, Dictionary<string, object> context = null, Dictionary<string, object> user = null, Trace trace = null);
+public static string CurrentTraceId();
+```
+
+`CaptureException` with no `trace` uses the most recently started trace that hasn't finished yet (a
+game is effectively one flow at a time, the same reasoning as `SetUser`), and so do the uncaught
+exceptions reported automatically; pass `trace:` when several overlap. An error captured with no open
+trace has no `trace_id` and is exactly what it was before. The span parents under whatever span is open
+on the calling thread (or the root). Nothing instruments `UnityWebRequest` automatically: only requests
+you give an HTTP span's headers carry the trace.
+
+Two options control the header:
+
+```csharp
+ForgeOpsTrackerClient.Init(c =>
+{
+    c.PropagateTraces = true;              // default; false stops the header (the http span is still recorded)
+    c.TracePropagationTargets = null;      // default: every host
+    // or only your own backends: a string matches that host exactly or as a subdomain on a dot
+    // boundary ("example.com" matches "api.example.com", not "badexample.com"); a Regex is searched
+    // for in the lowercased host
+    c.TracePropagationTargets = new List<object> { "example.com", new Regex(@"\.internal$") };
+});
+```
+
+Narrow the targets when the game also calls third-party APIs that reject unknown headers or shouldn't
+see your trace ids. To see the game error and the backend error together, the backend must also report
+to ForgeOps (the Ruby SDK continues the trace from the header automatically as of 0.12.0) and the two
+projects must be linked in ForgeOps.
 
 ## Custom metrics and infrastructure monitoring
 

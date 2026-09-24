@@ -78,7 +78,7 @@ namespace ForgeOpsTracker.Unity
             @"(?:(?:\[[^\]]*\]\s*)?in\s+(?<file1>.+):line\s+(?<line1>\d+)|\(at\s+(?<file2>[^:]+):(?<line2>\d+)\))?\s*$",
             RegexOptions.Compiled);
 
-        public static Dictionary<string, object> BuildFromException(Configuration configuration, Exception exception, Dictionary<string, object> context = null, Dictionary<string, object> user = null, List<Dictionary<string, object>> breadcrumbs = null)
+        public static Dictionary<string, object> BuildFromException(Configuration configuration, Exception exception, Dictionary<string, object> context = null, Dictionary<string, object> user = null, List<Dictionary<string, object>> breadcrumbs = null, string traceId = null)
         {
             var payload = Build(
                 configuration,
@@ -88,7 +88,8 @@ namespace ForgeOpsTracker.Unity
                 context,
                 user,
                 breadcrumbs,
-                SqlStatement.FindIn(exception));
+                SqlStatement.FindIn(exception),
+                traceId);
             return payload;
         }
 
@@ -101,7 +102,7 @@ namespace ForgeOpsTracker.Unity
         /// established, if anything: there's no per-request context here to read a user off of the
         /// way a server-side framework's own middleware could, only whatever the game set ambiently.
         /// </summary>
-        public static Dictionary<string, object> BuildFromLogMessage(Configuration configuration, string condition, string stackTrace, Dictionary<string, object> user = null, List<Dictionary<string, object>> breadcrumbs = null)
+        public static Dictionary<string, object> BuildFromLogMessage(Configuration configuration, string condition, string stackTrace, Dictionary<string, object> user = null, List<Dictionary<string, object>> breadcrumbs = null, string traceId = null)
         {
             var colonIndex = condition.IndexOf(':');
             var exceptionClass = colonIndex > 0 ? condition.Substring(0, colonIndex).Trim() : condition;
@@ -109,10 +110,10 @@ namespace ForgeOpsTracker.Unity
                 ? condition.Substring(colonIndex + 1).Trim()
                 : condition;
 
-            return Build(configuration, exceptionClass, message, stackTrace ?? string.Empty, null, user, breadcrumbs);
+            return Build(configuration, exceptionClass, message, stackTrace ?? string.Empty, null, user, breadcrumbs, null, traceId);
         }
 
-        private static Dictionary<string, object> Build(Configuration configuration, string exceptionClass, string message, string stackTraceText, Dictionary<string, object> context, Dictionary<string, object> user, List<Dictionary<string, object>> breadcrumbs, string rawSql = null)
+        private static Dictionary<string, object> Build(Configuration configuration, string exceptionClass, string message, string stackTraceText, Dictionary<string, object> context, Dictionary<string, object> user, List<Dictionary<string, object>> breadcrumbs, string rawSql = null, string traceId = null)
         {
             var payload = new Dictionary<string, object>
             {
@@ -140,6 +141,14 @@ namespace ForgeOpsTracker.Unity
             if (user != null && user.Count > 0)
             {
                 payload["user"] = user;
+            }
+
+            // The W3C trace id of the trace open when this happened (see Trace), which is what links it
+            // to errors other projects reported for the same request. Never scrubbed, for the same
+            // reason as user: a structured id this SDK generated, not free text. Omitted outside a trace.
+            if (traceId != null)
+            {
+                payload["trace_id"] = traceId;
             }
 
             // Omitted entirely (never sent as an empty array) when there's nothing to report.

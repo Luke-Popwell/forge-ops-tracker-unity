@@ -67,7 +67,7 @@ namespace ForgeOpsTracker.Unity
                 {
                     // Built before this exception's own log line is recorded as a breadcrumb below,
                     // so a report's trail is what led up to it, not the exception itself.
-                    var payload = EventBuilder.BuildFromLogMessage(_configuration, condition, stackTrace, ForgeOpsTrackerClient.CurrentUser, ForgeOpsTrackerClient.Breadcrumbs.All());
+                    var payload = EventBuilder.BuildFromLogMessage(_configuration, condition, stackTrace, ForgeOpsTrackerClient.CurrentUser, ForgeOpsTrackerClient.Breadcrumbs.All(), ForgeOpsTrackerClient.CurrentTraceId());
                     _queue.Push(payload);
                 }
                 catch (Exception ex)
@@ -102,7 +102,7 @@ namespace ForgeOpsTracker.Unity
 
             try
             {
-                var payload = EventBuilder.BuildFromException(_configuration, exception, null, ForgeOpsTrackerClient.CurrentUser, ForgeOpsTrackerClient.Breadcrumbs.All());
+                var payload = EventBuilder.BuildFromException(_configuration, exception, null, ForgeOpsTrackerClient.CurrentUser, ForgeOpsTrackerClient.Breadcrumbs.All(), ForgeOpsTrackerClient.CurrentTraceId());
                 _queue.Push(payload);
             }
             catch (Exception ex)

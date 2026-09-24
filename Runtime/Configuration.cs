@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace ForgeOpsTracker.Unity
@@ -105,11 +106,62 @@ namespace ForgeOpsTracker.Unity
         public int PerformanceFlushIntervalSeconds { get; set; } = 60;
 
         /// <summary>
-        /// Whether <see cref="ForgeOpsTrackerClient.StartTrace"/> starts a trace at all, and so
-        /// whether spans are recorded and slow traces sent. On by default. This client has no web
+        /// Whether a trace from <see cref="ForgeOpsTrackerClient.StartTrace"/> records spans and sends
+        /// itself when slow. On by default. With it off the trace records nothing but still has a
+        /// <see cref="Trace.TraceId"/>, which goes on errors captured while it is open and in the
+        /// <c>traceparent</c> header its HTTP spans produce (see <see cref="PropagateTraces"/>), since
+        /// that id is also what links an error here to one in your backend. This client has no web
         /// framework integration, so nothing starts a trace automatically: this only gates the manual API.
         /// </summary>
         public bool TrackTracing { get; set; } = true;
+
+        /// <summary>
+        /// Whether <see cref="Trace.StartHttpSpan"/> and <see cref="Trace.MeasureHttpSpan{T}"/> hand out
+        /// a W3C <c>traceparent</c> header (https://www.w3.org/TR/trace-context/) for the request, so a
+        /// backend that also reports to ForgeOps continues this trace instead of starting its own. On by
+        /// default, matching gems/forge_ops_tracker's <c>propagate_traces</c>. Off still records the
+        /// <c>http</c> span; it only stops the header.
+        /// </summary>
+        public bool PropagateTraces { get; set; } = true;
+
+        /// <summary>
+        /// Which hosts get that header. Null (the default) means every host. Otherwise each entry is a
+        /// host <c>string</c>, matching that exact host or any subdomain of it on a dot boundary
+        /// ("example.com" matches "api.example.com" but not "badexample.com"; case-insensitive, a
+        /// leading dot ignored), or a <see cref="Regex"/> searched for anywhere in the lowercased host,
+        /// so anchor it yourself. Anything else matches nothing. Worth narrowing when the game also calls
+        /// third-party APIs that reject unknown headers or shouldn't learn your trace ids.
+        /// </summary>
+        public List<object> TracePropagationTargets { get; set; }
+
+        /// <summary>
+        /// Whether a request to <paramref name="host"/> should carry a <c>traceparent</c> header: see
+        /// <see cref="PropagateTraces"/> and <see cref="TracePropagationTargets"/>. A request with no host
+        /// at all only gets one when every host does.
+        /// </summary>
+        public bool ShouldPropagateTrace(string host)
+        {
+            if (!PropagateTraces) return false;
+            var targets = TracePropagationTargets;
+            if (targets == null) return true;
+            var normalized = (host ?? string.Empty).ToLowerInvariant();
+            if (normalized.Length == 0) return false;
+
+            foreach (var target in targets)
+            {
+                if (target is string text)
+                {
+                    var domain = text.ToLowerInvariant();
+                    if (domain.StartsWith(".", StringComparison.Ordinal)) domain = domain.Substring(1);
+                    if (domain.Length > 0 && (normalized == domain || normalized.EndsWith("." + domain, StringComparison.Ordinal))) return true;
+                }
+                else if (target is Regex regex && regex.IsMatch(normalized))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         /// <summary>
         /// Seconds between flushes of the buffered <see cref="ForgeOpsTrackerClient.CaptureMetric"/> /
