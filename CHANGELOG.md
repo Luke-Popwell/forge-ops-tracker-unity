@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0 (2026-09-25)
+
+- Change tracking: `ForgeOpsTrackerClient.RecordChange(kind, title, details, environment, service, actor, url, id, occurredAt)` records one change you made (a feature flag flipped, a remote config value changed, a new content catalog rolled out) so ForgeOps can show it next to the errors and slowdowns that followed. `kind` is one of `feature_flag`, `config`, `migration`, `dependency`, `infrastructure` or `other` (`ForgeOpsTrackerClient.ChangeKinds`); anything else is sent as `other`. The title is cut to 200 characters, `environment` defaults to `EnvironmentName`, and `occurredAt` to now. Queued like an error report and delivered from the driver's next `Update` through the new `DeliveryTarget.Changes`, so it never blocks and never throws; a failed delivery, including a 403 on a plan without change tracking, is dropped quietly. A no-op before `Init` or when reporting isn't enabled. This package sends no startup snapshot of its own.
+
 ## 0.9.0
 
 - Trace context: follow a request from the game into your backend, using the W3C Trace Context standard (`traceparent`). `Trace.StartHttpSpan(method, url)` (for a `UnityWebRequest` in a coroutine: `span.AddHeadersTo(request)`, then `span.Finish()` once it completes) and `Trace.MeasureHttpSpan(method, url, headers => ...)` (for a blocking call) record the request as an `http` span named after its method and host and hand you the `traceparent` header whose parent id is that span's own id, so the backend's root span nests under it. `AddHeadersTo` leaves a `traceparent` the request already has alone.

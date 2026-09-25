@@ -58,7 +58,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.9.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.10.0`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 
@@ -382,6 +382,41 @@ entries and drops further ones until a flush succeeds, since a plan without the 
 flush and would otherwise grow it for as long as the game runs. A NaN or infinite value is dropped at
 capture: it is not valid JSON. Requires a ForgeOps plan that includes custom metrics / infrastructure
 monitoring.
+
+## Recording changes
+
+Tell ForgeOps when something about the game changed outside a new build (a feature flag flipped, a
+remote config value changed, a new content catalog rolled out) so it shows up next to the errors and
+slowdowns that followed:
+
+```csharp
+using System.Collections.Generic;
+using ForgeOpsTracker.Unity;
+using UnityEngine;
+
+public class RemoteConfigListener : MonoBehaviour
+{
+    public void OnShopFlagChanged(bool enabled)
+    {
+        ForgeOpsTrackerClient.RecordChange(
+            "feature_flag",
+            enabled ? "Enabled new shop" : "Disabled new shop",
+            new Dictionary<string, object> { ["flag"] = "new_shop", ["to"] = enabled },
+            actor: "remote-config",
+            url: "https://example.com/flags/new_shop");
+    }
+}
+```
+
+`kind` is one of `feature_flag`, `config`, `migration`, `dependency`, `infrastructure` or `other`
+(`ForgeOpsTrackerClient.ChangeKinds`); anything else is sent as `other`. The title is cut to 200
+characters. `environment` defaults to `EnvironmentName` and `occurredAt` to now; `service`, `actor`,
+`url` and `id` (your own idempotency key, so a retried call records the change once) are optional. The
+change is queued like an error report and delivered from the driver's next `Update`, so it never blocks
+and never throws: a failed delivery is dropped quietly, including the 403 a plan without change
+tracking returns. It is a no-op before `Init` or when reporting isn't enabled for the environment. Safe
+to call from any thread. A game build has no reliable picture of "what changed since last launch" to
+report on its own, so this package sends no automatic startup snapshot; every change is one you record.
 
 ## `in_app` backtrace frames
 

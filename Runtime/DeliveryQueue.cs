@@ -16,7 +16,9 @@ namespace ForgeOpsTracker.Unity
         /// <summary>The DSN's custom_metrics endpoint: a batch of individual metric captures (see <see cref="MetricBuffer"/>).</summary>
         CustomMetrics,
         /// <summary>The DSN's infrastructure_metrics endpoint: a batch of infrastructure readings.</summary>
-        InfrastructureMetrics
+        InfrastructureMetrics,
+        /// <summary>The DSN's changes endpoint: one change (see <see cref="ForgeOpsTrackerClient.RecordChange"/>).</summary>
+        Changes
     }
 
     /// <summary>

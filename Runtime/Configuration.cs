@@ -215,6 +215,9 @@ namespace ForgeOpsTracker.Unity
         /// <summary>Same derivation again, swapping the trailing "/events" for "/infrastructure_metrics".</summary>
         public string InfrastructureMetricsUri() => SwapEventsSuffix("/infrastructure_metrics");
 
+        /// <summary>Same derivation again, swapping the trailing "/events" for "/changes".</summary>
+        public string ChangesUri() => SwapEventsSuffix("/changes");
+
         private string SwapEventsSuffix(string replacement)
         {
             var uri = IngestionUri();

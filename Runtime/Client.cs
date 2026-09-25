@@ -33,6 +33,7 @@ namespace ForgeOpsTracker.Unity
                 case DeliveryTarget.Spans: uri = configuration.SpansUri(); break;
                 case DeliveryTarget.CustomMetrics: uri = configuration.CustomMetricsUri(); break;
                 case DeliveryTarget.InfrastructureMetrics: uri = configuration.InfrastructureMetricsUri(); break;
+                case DeliveryTarget.Changes: uri = configuration.ChangesUri(); break;
                 default: uri = configuration.IngestionUri(); break;
             }
             var apiKey = configuration.ApiKey;

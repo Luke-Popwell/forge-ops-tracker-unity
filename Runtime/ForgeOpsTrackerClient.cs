@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace ForgeOpsTracker.Unity
 {
@@ -268,6 +269,67 @@ namespace ForgeOpsTracker.Unity
         {
             CustomMetrics.Flush();
             InfrastructureMetrics.Flush();
+        }
+
+        private static readonly HashSet<string> ChangeKindSet = new HashSet<string>
+        {
+            "feature_flag", "config", "migration", "dependency", "infrastructure", "other"
+        };
+
+        /// <summary>The kinds of change ForgeOps accepts; <see cref="RecordChange"/> sends anything else as "other", since the server rejects an unknown kind outright.</summary>
+        public static IReadOnlyCollection<string> ChangeKinds => ChangeKindSet;
+
+        // The server's own limit on a change's title; a longer one is cut here rather than rejected there.
+        private const int MaxChangeTitleLength = 200;
+
+        /// <summary>
+        /// Records one change you made (a feature flag flipped, a remote config value changed, a new
+        /// content catalog rolled out) so ForgeOps can show it next to the errors and slowdowns that
+        /// followed it:
+        ///
+        ///     ForgeOpsTrackerClient.RecordChange("feature_flag", "Enabled new shop",
+        ///         details: new Dictionary&lt;string, object&gt; { ["flag"] = "new_shop", ["to"] = true });
+        ///
+        /// <paramref name="kind"/> is one of <see cref="ChangeKinds"/> (anything else is sent as
+        /// "other"); <paramref name="title"/> is cut to 200 characters. <paramref name="environment"/>
+        /// defaults to <see cref="Configuration.EnvironmentName"/> and <paramref name="occurredAt"/> to
+        /// now; the rest are optional, <paramref name="id"/> being your own idempotency key so a retried
+        /// call records the change once. Queued like an error report and delivered from the driver's next
+        /// <c>Update</c>, so it never blocks and never throws; a failed delivery (including the 403 a plan
+        /// without change tracking returns) is dropped quietly. A no-op before <see cref="Init"/>, when
+        /// reporting isn't enabled for this environment, or when <paramref name="title"/> is blank. Safe
+        /// to call from any thread. This package sends no automatic startup snapshot: every change is one
+        /// you record.
+        /// </summary>
+        public static void RecordChange(string kind, string title, Dictionary<string, object> details = null, string environment = null, string service = null, string actor = null, string url = null, string id = null, DateTime? occurredAt = null)
+        {
+            var queue = _queue;
+            if (queue == null || !Config.IsEnabled()) return;
+
+            try
+            {
+                var trimmed = title?.Trim();
+                if (string.IsNullOrEmpty(trimmed)) return;
+
+                var payload = new Dictionary<string, object>
+                {
+                    ["kind"] = kind != null && ChangeKindSet.Contains(kind) ? kind : "other",
+                    ["title"] = trimmed.Length > MaxChangeTitleLength ? trimmed.Substring(0, MaxChangeTitleLength) : trimmed,
+                    ["environment"] = environment ?? Config.EnvironmentName,
+                    ["occurred_at"] = (occurredAt ?? DateTime.UtcNow).ToUniversalTime().ToString("o", CultureInfo.InvariantCulture)
+                };
+                if (details != null && details.Count > 0) payload["details"] = details;
+                if (service != null) payload["service"] = service;
+                if (actor != null) payload["actor"] = actor;
+                if (url != null) payload["url"] = url;
+                if (id != null) payload["id"] = id;
+
+                queue.Push(payload, DeliveryTarget.Changes, null);
+            }
+            catch (Exception ex)
+            {
+                Config.Log($"[ForgeOpsTracker] recordChange failed: {ex}");
+            }
         }
 
         /// <summary>
