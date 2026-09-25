@@ -60,6 +60,50 @@ namespace ForgeOpsTracker.Unity.Tests
         }
 
         [Test]
+        public void ADatabaseSpanSendsItsStatementMaskedAsDbStatementWithDbSystem()
+        {
+            var delivered = new List<Dictionary<string, object>>();
+            var trace = NewTrace(EnabledConfiguration(), delivered);
+
+            var rows = trace.MeasureSpan("Load orders", () =>
+            {
+                Thread.Sleep(30);
+                return 3;
+            }, "database", new Dictionary<string, object> { ["rows"] = 3 }, "SELECT * FROM orders WHERE email = 'a@b.co' AND total > 4200", "SQLite");
+            using (trace.StartSpan("Scoped", "database", statement: "SELECT name FROM saves WHERE slot = 2", dbSystem: "sqlite"))
+            {
+            }
+            trace.RecordSpan("Count", "database", DateTime.UtcNow, 1,
+                new Dictionary<string, object> { ["db.statement"] = "SELECT count(*) FROM carts WHERE code = 'private-value'" });
+            trace.RecordSpan("Not db", "service", DateTime.UtcNow, 1, statement: "SELECT 'x'", dbSystem: "sqlite");
+            trace.Finish();
+
+            Assert.AreEqual(3, rows);
+            var load = (Dictionary<string, object>)SpanNamed(delivered[0], "Load orders")["data"];
+            Assert.AreEqual("SELECT * FROM orders WHERE email = ? AND total > ?", load["db.statement"]);
+            Assert.AreEqual("sqlite", load["db.system"]);
+            Assert.AreEqual(3, load["rows"]);
+            var scoped = (Dictionary<string, object>)SpanNamed(delivered[0], "Scoped")["data"];
+            Assert.AreEqual("SELECT name FROM saves WHERE slot = ?", scoped["db.statement"]);
+            var count = (Dictionary<string, object>)SpanNamed(delivered[0], "Count")["data"];
+            Assert.AreEqual("SELECT count(*) FROM carts WHERE code = ?", count["db.statement"]);
+            Assert.IsFalse(count.ContainsKey("db.system"));
+            Assert.AreEqual(0, ((Dictionary<string, object>)SpanNamed(delivered[0], "Not db")["data"]).Count);
+            var json = Json.Encode(delivered[0]);
+            StringAssert.DoesNotContain("a@b.co", json);
+            StringAssert.DoesNotContain("private-value", json);
+        }
+
+        [Test]
+        public void ADatabaseStatementIsCutAt4000Characters()
+        {
+            var sql = "SELECT " + string.Concat(System.Linq.Enumerable.Repeat("a, ", 3000)) + "b FROM t";
+            var statement = (string)Trace.SpanData("database", null, sql, null)["db.statement"];
+            Assert.AreEqual(4003, statement.Length);
+            StringAssert.EndsWith("...", statement);
+        }
+
+        [Test]
         public void AnUnknownKindIsSentAsOtherSinceTheServerWouldRejectTheWholeTrace()
         {
             var delivered = new List<Dictionary<string, object>>();

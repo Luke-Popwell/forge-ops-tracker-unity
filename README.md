@@ -58,7 +58,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.10.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.11.0`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 
@@ -263,6 +263,24 @@ automatically**. Delivery is the same as everything else here: finishing a slow 
 payload on the `DeliveryQueue`, and the driver sends it from Unity's main thread on a later frame (a
 `UnityWebRequest` can only run there), so a trace finished as the app is suspended or quit is not
 delivered. Turn the feature off with `TrackTracing = false`.
+
+### Database spans with their SQL
+
+A `database` span can carry the SQL it ran (a query against a local SQLite save database, say) and
+which database it was. Every string and number literal is replaced by `?` before it leaves the
+device (so `WHERE player = 'ana'` is sent as `WHERE player = ?`), the statement is cut at 4000
+characters, and ForgeOps masks it again on arrival. It is sent in the span's data as `db.statement`
+and `db.system`, and ForgeOps shows it on the span. Both are ignored on any other kind.
+
+```csharp
+const string sql = "SELECT * FROM saves WHERE slot = 2 AND player = 'ana'";
+var save = trace.MeasureSpan("SaveGame.Load", () => db.Query(sql), "database", statement: sql, dbSystem: "sqlite");
+// Sent as db.statement "SELECT * FROM saves WHERE slot = ? AND player = ?", db.system "sqlite".
+
+using (trace.StartSpan("SaveGame.Write", "database", statement: insertSql, dbSystem: "sqlite")) { db.Execute(insertSql); }
+```
+
+`RecordSpan` takes the same `statement` and `dbSystem` arguments for a query you timed yourself.
 
 ### Connecting game errors to your backend
 

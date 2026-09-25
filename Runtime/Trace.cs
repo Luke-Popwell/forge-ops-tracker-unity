@@ -79,16 +79,26 @@ namespace ForgeOpsTracker.Unity
         /// </summary>
         public string TraceId { get; }
 
-        /// <summary>Times <paramref name="body"/> as a span (a child of whatever span is open on this thread, or of the root), recording it even if it throws, and returns its value.</summary>
-        public T MeasureSpan<T>(string name, Func<T> body, string kind = "service", Dictionary<string, object> data = null)
+        /// <summary>
+        /// Times <paramref name="body"/> as a span (a child of whatever span is open on this thread, or of the root), recording it even if it throws, and returns its value.
+        ///
+        /// For a "database" span, <paramref name="statement"/> is the SQL it ran (a local SQLite query,
+        /// say) and <paramref name="dbSystem"/> which database it was ("sqlite"): sent in the span's
+        /// data as <c>db.statement</c>, with every string and number literal replaced by "?" first so
+        /// values never leave the device, cut at 4000 characters, and <c>db.system</c>, lowercased.
+        /// Both are ignored on any other kind.
+        ///
+        ///     var rows = trace.MeasureSpan("SaveGame.Load", () => db.Query(sql), "database", statement: sql, dbSystem: "sqlite");
+        /// </summary>
+        public T MeasureSpan<T>(string name, Func<T> body, string kind = "service", Dictionary<string, object> data = null, string statement = null, string dbSystem = null)
         {
-            using (StartSpan(name, kind, data)) return body();
+            using (StartSpan(name, kind, data, statement, dbSystem)) return body();
         }
 
-        /// <summary>Times <paramref name="body"/> as a span, recording it even if it throws.</summary>
-        public void MeasureSpan(string name, Action body, string kind = "service", Dictionary<string, object> data = null)
+        /// <summary>Times <paramref name="body"/> as a span, recording it even if it throws. <paramref name="statement"/> and <paramref name="dbSystem"/> work as on <see cref="MeasureSpan{T}"/>.</summary>
+        public void MeasureSpan(string name, Action body, string kind = "service", Dictionary<string, object> data = null, string statement = null, string dbSystem = null)
         {
-            using (StartSpan(name, kind, data)) body();
+            using (StartSpan(name, kind, data, statement, dbSystem)) body();
         }
 
         /// <summary>
@@ -96,23 +106,51 @@ namespace ForgeOpsTracker.Unity
         /// throws:
         ///
         ///     using (trace.StartSpan("Level1.Load", "job")) { LoadLevel(); }
+        ///
+        /// <paramref name="statement"/> and <paramref name="dbSystem"/> work as on <see cref="MeasureSpan{T}"/>.
         /// </summary>
-        public IDisposable StartSpan(string name, string kind = "service", Dictionary<string, object> data = null)
+        public IDisposable StartSpan(string name, string kind = "service", Dictionary<string, object> data = null, string statement = null, string dbSystem = null)
         {
             if (!_recording) return NoopScope.Instance;
 
             var id = TraceParent.GenerateSpanId();
             var parent = CurrentParent();
             _open.Value.Add(id);
-            return new SpanScope(this, id, parent, name, kind, data);
+            return new SpanScope(this, id, parent, name, kind, SpanData(kind, data, statement, dbSystem));
         }
 
-        /// <summary>Records a span you timed yourself, under whatever is open on this thread (or the root).</summary>
-        public void RecordSpan(string name, string kind, DateTime startedAtUtc, double durationMs, Dictionary<string, object> data = null)
+        /// <summary>
+        /// Records a span you timed yourself, under whatever is open on this thread (or the root).
+        /// <paramref name="statement"/> and <paramref name="dbSystem"/> work as on <see cref="MeasureSpan{T}"/>.
+        /// </summary>
+        public void RecordSpan(string name, string kind, DateTime startedAtUtc, double durationMs, Dictionary<string, object> data = null, string statement = null, string dbSystem = null)
         {
             if (!_recording) return;
 
-            Store(Build(TraceParent.GenerateSpanId(), CurrentParent(), name, kind, startedAtUtc, durationMs, data));
+            Store(Build(TraceParent.GenerateSpanId(), CurrentParent(), name, kind, startedAtUtc, durationMs, SpanData(kind, data, statement, dbSystem)));
+        }
+
+        /// <summary>
+        /// A span's data, with a "database" span's SQL added as <c>db.statement</c> (masked with
+        /// <see cref="SqlStatement.MaskStatement"/>) and its <c>db.system</c>, lowercased. A
+        /// <c>db.statement</c> passed in <paramref name="data"/> directly is masked too, so raw SQL can
+        /// never go out on a span. Any other kind's data is returned unchanged.
+        /// </summary>
+        internal static Dictionary<string, object> SpanData(string kind, Dictionary<string, object> data, string statement, string dbSystem)
+        {
+            if (kind != "database") return data;
+
+            var result = data != null ? new Dictionary<string, object>(data) : new Dictionary<string, object>();
+            result.TryGetValue("db.statement", out var passedStatement);
+            result.TryGetValue("db.system", out var passedSystem);
+            result.Remove("db.statement");
+            result.Remove("db.system");
+
+            var masked = SqlStatement.MaskStatement(statement ?? passedStatement as string);
+            if (masked != null) result["db.statement"] = masked;
+            var system = (dbSystem ?? passedSystem as string)?.Trim();
+            if (!string.IsNullOrEmpty(system)) result["db.system"] = system.ToLowerInvariant();
+            return result;
         }
 
         /// <summary>

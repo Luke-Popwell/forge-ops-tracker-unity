@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0 (2026-09-25)
+
+- A `database` span can now carry the SQL it ran, such as a local SQLite query: `MeasureSpan`, `StartSpan` and `RecordSpan` take optional `statement` and `dbSystem` (such as `"sqlite"`) arguments. The statement is masked on the device (every string and number literal becomes `?`), cut at 4000 characters, and sent in the span's data as `db.statement`, with `db.system` lowercased. A `db.statement` put in `data` directly is masked the same way. Both are ignored on spans of any other kind. Like the rest of this package, verified against the hand-written `UnityEngine` stub under plain .NET, not a real Editor.
+
 ## 0.10.0 (2026-09-25)
 
 - Change tracking: `ForgeOpsTrackerClient.RecordChange(kind, title, details, environment, service, actor, url, id, occurredAt)` records one change you made (a feature flag flipped, a remote config value changed, a new content catalog rolled out) so ForgeOps can show it next to the errors and slowdowns that followed. `kind` is one of `feature_flag`, `config`, `migration`, `dependency`, `infrastructure` or `other` (`ForgeOpsTrackerClient.ChangeKinds`); anything else is sent as `other`. The title is cut to 200 characters, `environment` defaults to `EnvironmentName`, and `occurredAt` to now. Queued like an error report and delivered from the driver's next `Update` through the new `DeliveryTarget.Changes`, so it never blocks and never throws; a failed delivery, including a 403 on a plan without change tracking, is dropped quietly. A no-op before `Init` or when reporting isn't enabled. This package sends no startup snapshot of its own.
