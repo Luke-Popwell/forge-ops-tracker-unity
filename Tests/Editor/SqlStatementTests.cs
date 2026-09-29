@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using NUnit.Framework;
 
 namespace ForgeOpsTracker.Unity.Tests
@@ -56,6 +57,51 @@ namespace ForgeOpsTracker.Unity.Tests
             var once = SqlStatement.MaskStatement("SELECT * FROM t WHERE a = 'x' AND b = 9");
             Assert.AreEqual(once, SqlStatement.MaskStatement(once));
             Assert.AreEqual(SqlStatement.MaxLength + 3, SqlStatement.MaskStatement("SELECT " + new string('a', 9000) + " b").Length);
+        }
+
+        // The server's own test set for SqlStatementMasker: input, db.system (or null), expected.
+        private static readonly string[][] SharedCases =
+        {
+            new[] { "SELECT * FROM orders WHERE email = 'a@b.co' AND id = 42 LIMIT 10", null, "SELECT * FROM orders WHERE email = ? AND id = ? LIMIT ?" },
+            new[] { "EXEC sp_note @text = 'it''s broken'", null, "EXEC sp_note @text = ?" },
+            new[] { "SELECT 1 WHERE name = 'unterminated", null, "SELECT ? WHERE name = ?" },
+            new[] { "DO $body$ BEGIN PERFORM 1; END $body$", null, "DO ?" },
+            new[] { "SELECT \"user id\" FROM orders2 WHERE id = $1 AND v = sp_v2(?)", null, "SELECT \"user id\" FROM orders2 WHERE id = $1 AND v = sp_v2(?)" },
+            new[] { "SELECT price * 1.5 FROM t", null, "SELECT price * ? FROM t" },
+            new[] { "SELECT * FROM users WHERE name = E'o\\'brien' AND id = 1", null, "SELECT * FROM users WHERE name = ? AND id = ?" },
+            new[] { "SELECT * FROM users WHERE name = 'o\\'brien' AND id = 1", null, "SELECT * FROM users WHERE name = ? AND id = ?" },
+            new[] { "SELECT * FROM t WHERE b = X'DEADBEEF' AND s = N'uni' AND u = U&'d\\0061t' AND e = e'x'", null, "SELECT * FROM t WHERE b = ? AND s = ? AND u = ? AND e = ?" },
+            new[] { "SELECT * FROM t WHERE a LIKE'%secret%'", null, "SELECT * FROM t WHERE a LIKE?" },
+            new[] { "SELECT * FROM t WHERE f = 0x1F AND b = 0b101 AND n = 3e10 AND m = 1.5E-3 AND k = .5", null, "SELECT * FROM t WHERE f = ? AND b = ? AND n = ? AND m = ? AND k = ?" },
+            new[] { "SELECT e, t.col, 1e5e FROM t", null, "SELECT e, t.col, 1e5e FROM t" },
+            new[] { "SELECT \"user id\" FROM t WHERE token = \"abc123secret\"", "mysql", "SELECT ? FROM t WHERE token = ?" },
+            new[] { "SELECT \"user id\" FROM t WHERE token = \"abc123secret\"", "MariaDB", "SELECT ? FROM t WHERE token = ?" },
+            new[] { "SELECT \"user id\" FROM t WHERE token = \"abc123secret\"", "postgresql", "SELECT \"user id\" FROM t WHERE token = \"abc123secret\"" },
+            new[] { "SELECT \"user id\" FROM t WHERE token = \"abc123secret\"", null, "SELECT \"user id\" FROM t WHERE token = \"abc123secret\"" },
+            new[] { "SELECT * FROM t WHERE a = 'x' AND b = 9", null, "SELECT * FROM t WHERE a = ? AND b = ?" },
+            new[] { "SELECT * FROM t WHERE a = ? AND b = ?", null, "SELECT * FROM t WHERE a = ? AND b = ?" },
+            new[] { "SELECT * FROM t WHERE path = 'C:\\\\dir\\\\' AND n = 5", null, "SELECT * FROM t WHERE path = ? AND n = ?" },
+            new[] { "INSERT INTO t (a, b) VALUES (-5, +3.25e+2)", null, "INSERT INTO t (a, b) VALUES (-?, +?)" },
+            new[] { "SELECT * FROM t WHERE a = 'secret\\", null, "SELECT * FROM t WHERE a = ?" },
+            new[] { "SELECT * FROM t WHERE a = \"secret\\", "mysql", "SELECT * FROM t WHERE a = ?" },
+        };
+
+        [Test]
+        public void MaskStatement_matches_the_servers_masker_on_every_shared_case()
+        {
+            foreach (var c in SharedCases)
+            {
+                Assert.AreEqual(c[2], SqlStatement.MaskStatement(c[0], c[1]), c[0]);
+                Assert.AreEqual(c[2], SqlStatement.MaskStatement(c[2], c[1]), c[2]);
+            }
+        }
+
+        [Test]
+        public void MaskStatement_masks_a_very_long_string_in_one_piece()
+        {
+            Assert.AreEqual("SELECT ?", SqlStatement.MaskStatement("SELECT '" + new string('x', 100000) + "'"));
+            Assert.AreEqual("SELECT ?", SqlStatement.MaskStatement("SELECT '" + string.Concat(Enumerable.Repeat("x\\'", 50000)) + "'"));
+            Assert.AreEqual("SELECT ?", SqlStatement.MaskStatement("SELECT \"" + new string('x', 100000) + "\"", "mysql"));
         }
 
         [Test]

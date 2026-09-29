@@ -104,6 +104,16 @@ namespace ForgeOpsTracker.Unity.Tests
         }
 
         [Test]
+        public void DoubleQuotedStringsAreMaskedOnlyForMysqlAndMariadb()
+        {
+            const string sql = "SELECT id FROM users WHERE token = \"abc123secret\"";
+            Assert.AreEqual("SELECT id FROM users WHERE token = ?", Trace.SpanData("database", null, sql, "MySQL")["db.statement"]);
+            var passed = new Dictionary<string, object> { ["db.statement"] = sql, ["db.system"] = "mariadb" };
+            Assert.AreEqual("SELECT id FROM users WHERE token = ?", Trace.SpanData("database", passed, null, null)["db.statement"]);
+            Assert.AreEqual(sql, Trace.SpanData("database", null, sql, "sqlite")["db.statement"]);
+        }
+
+        [Test]
         public void AnUnknownKindIsSentAsOtherSinceTheServerWouldRejectTheWholeTrace()
         {
             var delivered = new List<Dictionary<string, object>>();

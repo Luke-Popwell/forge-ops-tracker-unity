@@ -31,9 +31,28 @@ namespace ForgeOpsTracker.Unity
         private const int MaxNameLength = 200;
         private const int MaxCauseDepth = 5;
 
+        // A string's type prefix (E'', X'', N'', B'', U&'') only counts when it isn't the end of a word,
+        // but the quote always does: LIKE'%x%', with no space, is still a string. A backslash escapes the
+        // next character ('o\'brien'); where a backslash is just a character, the string is masked on to
+        // the end: more than needed, never less. Word characters and digits are spelled out as ASCII
+        // classes because .NET's \w and \d also match other scripts, and the server's don't.
+        private const string StringLiteral = @"(?:(?<![A-Za-z0-9_$])(?:[EeXxNnBb]|[Uu]&))?'(?:[^'\\]|\\(?:.|\z)|'')*(?:'|\z)";
+        private const string DoubleQuotedString = @"""(?:[^""\\]|\\(?:.|\z)|"""")*(?:""|\z)";
+        private const string DollarQuoted = @"(?<tag>\$[A-Za-z_]*\$).*?(?:\k<tag>|\z)";
+        // Integers, decimals (.5 too), exponents, hex and binary, never the digits inside an identifier.
+        private const string Number =
+            @"(?<![A-Za-z0-9_$.])(?:0[xX][0-9A-Fa-f]+|0[bB][01]+|(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(?![A-Za-z0-9_])";
         private static readonly Regex Literal = new(
-            @"'(?:[^']|'')*(?:'|\z)|(?<tag>\$[A-Za-z_]*\$).*?(?:\k<tag>|\z)|(?<![\w$.])\d+(?:\.\d+)?(?!\w)",
+            StringLiteral + "|" + DollarQuoted + "|" + Number,
             RegexOptions.Singleline | RegexOptions.CultureInvariant);
+        // MySQL and MariaDB read "double quotes" as a string, not a name, so for those they're masked too.
+        private static readonly Regex LiteralWithDoubleQuotes = new(
+            StringLiteral + "|" + DoubleQuotedString + "|" + DollarQuoted + "|" + Number,
+            RegexOptions.Singleline | RegexOptions.CultureInvariant);
+        private static readonly HashSet<string> DoubleQuotedStringSystems = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "mysql", "mariadb"
+        };
 
         private const string Part = @"(?:[\w$#@]+|""[^""]+""|\[[^\]]+\]|`[^`]+`)";
         private const string Name = Part + @"(?:\." + Part + ")*";
@@ -152,14 +171,21 @@ namespace ForgeOpsTracker.Unity
             return null;
         }
 
-        public static string? MaskStatement(string? statement)
+        public static string? MaskStatement(string? statement) => MaskStatement(statement, null);
+
+        /// <summary>
+        /// <paramref name="system"/> is the statement's <c>db.system</c> when known: for "mysql" and
+        /// "mariadb" (any case), double-quoted strings are masked too.
+        /// </summary>
+        public static string? MaskStatement(string? statement, string? system)
         {
             if (string.IsNullOrWhiteSpace(statement))
             {
                 return null;
             }
 
-            var masked = Literal.Replace(statement, Mask);
+            var pattern = system != null && DoubleQuotedStringSystems.Contains(system) ? LiteralWithDoubleQuotes : Literal;
+            var masked = pattern.Replace(statement, Mask);
             return masked.Length > MaxLength ? masked.Substring(0, MaxLength) + "..." : masked;
         }
 

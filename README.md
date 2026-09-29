@@ -58,7 +58,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.11.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.12.0`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 
@@ -282,6 +282,12 @@ using (trace.StartSpan("SaveGame.Write", "database", statement: insertSql, dbSys
 
 `RecordSpan` takes the same `statement` and `dbSystem` arguments for a query you timed yourself.
 
+Masking covers backslash-escaped quotes (`'o\'brien'`), prefixed strings (`E'...'`, `X'DEADBEEF'`,
+`N'...'`, `B'...'`, `U&'...'`), and hex, binary, exponent and leading-dot numbers (`0x1F`, `0b101`,
+`1.5E-3`, `.5`), never the digits inside a name like `orders2` or a `$1` placeholder. With
+`dbSystem` `"mysql"` or `"mariadb"`, double-quoted text is masked too, since those databases read
+`"..."` as a string; for any other database, SQLite included, it's a name and is left as is.
+
 ### Connecting game errors to your backend
 
 Trace and span ids use the [W3C Trace Context](https://www.w3.org/TR/trace-context/) format (a 32
@@ -489,7 +495,8 @@ Games rarely run SQL against a server, but a local database plugin's exception c
 
 To also send the SQL statement itself, opt in. Every string and number is replaced by `?` before it
 leaves your process (`WHERE email = 'a@b.co' AND id = 42` is sent as `WHERE email = ? AND id = ?`),
-and ForgeOps masks it again on arrival:
+and ForgeOps masks it again on arrival. Escaped quotes, prefixed strings such as `X'DEADBEEF'`, and
+hex, binary and exponent numbers are masked the same way:
 
 ```csharp
 catch (Exception e)

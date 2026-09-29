@@ -146,9 +146,9 @@ namespace ForgeOpsTracker.Unity
             result.Remove("db.statement");
             result.Remove("db.system");
 
-            var masked = SqlStatement.MaskStatement(statement ?? passedStatement as string);
-            if (masked != null) result["db.statement"] = masked;
             var system = (dbSystem ?? passedSystem as string)?.Trim();
+            var masked = SqlStatement.MaskStatement(statement ?? passedStatement as string, system);
+            if (masked != null) result["db.statement"] = masked;
             if (!string.IsNullOrEmpty(system)) result["db.system"] = system.ToLowerInvariant();
             return result;
         }
