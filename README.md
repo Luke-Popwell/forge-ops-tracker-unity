@@ -58,7 +58,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.12.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.12.1`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 

@@ -1,10 +1,10 @@
 {
   "name": "com.forgeops.tracker",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "displayName": "ForgeOps Tracker",
   "description": "Error reporting client for ForgeOps.",
   "unity": "2021.3",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "keywords": ["error reporting", "crash reporting", "forgeops"],
   "dependencies": {}
 }

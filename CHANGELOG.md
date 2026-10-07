@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.1 (2026-10-07)
+
+- The package is now MIT licensed: it ships `LICENSE.txt`, and `package.json` says `MIT` where it said `UNLICENSED`. No code changes.
+
 ## 0.12.0 (2026-09-29)
 
 - SQL masking now matches the server's newer rules, so fewer values can slip through. A backslash-escaped quote no longer ends a string early (`'o\'brien'` and `E'o\'brien'` are each one `?`), a string's type prefix goes with it (`X'DEADBEEF'`, `N'...'`, `B'...'`, `U&'...'`), and hex, binary, exponent and leading-dot numbers are masked (`0x1F`, `0b101`, `3e10`, `1.5E-3`, `.5`). A `database` span whose `dbSystem` is `mysql` or `mariadb` also has its double-quoted strings masked, since those databases read `"..."` as a string, not a name. A string cut off right after a backslash is masked to the end too. Applies to database spans and to the statement sent with a database error. Like the rest of this package, verified against the hand-written `UnityEngine` stub under plain .NET, not a real Editor.
