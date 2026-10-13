@@ -24,7 +24,7 @@ namespace ForgeOpsTracker.Unity
     /// </summary>
     internal static class Client
     {
-        public static IEnumerator DeliverCoroutine(Configuration configuration, Dictionary<string, object> payload, Action<bool> onComplete, DeliveryTarget target = DeliveryTarget.Events)
+        public static IEnumerator DeliverCoroutine(Configuration configuration, Dictionary<string, object> payload, Action<DeliveryResult> onComplete, DeliveryTarget target = DeliveryTarget.Events)
         {
             string uri;
             switch (target)
@@ -40,7 +40,7 @@ namespace ForgeOpsTracker.Unity
 
             if (uri == null || apiKey == null)
             {
-                onComplete?.Invoke(false);
+                onComplete?.Invoke(DeliveryResult.Failed);
                 yield break;
             }
 
@@ -62,12 +62,19 @@ namespace ForgeOpsTracker.Unity
                 var failed = request.isNetworkError || request.isHttpError;
 #endif
 
-                if (failed)
+                // A status the server will only ever repeat (see DeliveryResult.Rejected) is told
+                // apart from a failure worth another try, so a flusher can let go of the batch.
+                var result = DeliveryResults.FromResponse(!failed, request.responseCode);
+                if (result == DeliveryResult.Rejected)
+                {
+                    configuration.Log($"[ForgeOpsTracker] delivery rejected: HTTP {request.responseCode}");
+                }
+                else if (result == DeliveryResult.Failed)
                 {
                     configuration.Log($"[ForgeOpsTracker] delivery failed: {request.error}");
                 }
 
-                onComplete?.Invoke(!failed);
+                onComplete?.Invoke(result);
             }
         }
     }

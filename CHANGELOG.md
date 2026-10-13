@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0 (2026-10-13)
+
+- A batch the server will never accept is no longer re-sent forever. Performance samples and custom and infrastructure metrics used to keep a batch after any failed delivery and send it again, with more added, at every flush. A 4xx answer other than 408 and 429 (a wrong key, a plan without the feature, a batch the server can't read or that is too large) now drops the batch at once, since the same batch would only get the same answer. Before this, a rejected metric batch also stayed in the 1000-entry buffer, so once the buffer filled, every metric captured afterward was dropped too.
+- A delivery that fails for now (a network error, a timeout, a 5xx, a 408 or a 429) still keeps the batch for the next flush, but only so long: after 5 failed flushes in a row the batch is dropped and the next one starts clean. A successful flush starts the count over. The 1000-entry cap on each metric buffer is unchanged.
+- Each drop is reported once through `Configuration.Logger`, for example `[ForgeOpsTracker] dropped 12 metrics: the server rejected it` or `... delivery failed 5 times in a row`, and a rejected request is logged with its status (`delivery rejected: HTTP 403`). Nothing about delivery throws.
+- No API changes: `DeliveryQueue`'s public `Push` and `TryDequeue` still pass a `bool` that is `true` only for a delivered payload, and errors, traces and changes are still sent once and never retried.
+
 ## 0.12.1 (2026-10-07)
 
 - The package is now MIT licensed: it ships `LICENSE.txt`, and `package.json` says `MIT` where it said `UNLICENSED`. No code changes.

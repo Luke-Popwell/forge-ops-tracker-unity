@@ -42,15 +42,15 @@ namespace ForgeOpsTracker.Unity
             ForgeOpsTrackerClient.InfrastructureMetrics.Tick();
 
             if (_delivering) return;
-            if (!_queue.TryDequeue(out var payload, out var target, out var onComplete)) return;
+            if (!_queue.TryDequeueWithResult(out var payload, out var target, out var onComplete)) return;
 
             _delivering = true;
             StartCoroutine(DeliverAndContinue(payload, target, onComplete));
         }
 
-        private IEnumerator DeliverAndContinue(System.Collections.Generic.Dictionary<string, object> payload, DeliveryTarget target, System.Action<bool> onComplete)
+        private IEnumerator DeliverAndContinue(System.Collections.Generic.Dictionary<string, object> payload, DeliveryTarget target, System.Action<DeliveryResult> onComplete)
         {
-            yield return Client.DeliverCoroutine(_configuration, payload, success => onComplete?.Invoke(success), target);
+            yield return Client.DeliverCoroutine(_configuration, payload, result => onComplete?.Invoke(result), target);
             _delivering = false;
         }
     }

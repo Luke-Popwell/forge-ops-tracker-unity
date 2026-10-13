@@ -58,7 +58,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.12.1`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.13.0`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 
@@ -215,8 +215,10 @@ has elapsed. The consequence, which you should know about: **delivery happens on
 was tallied since the last interval tick can be lost then. Shorten `PerformanceFlushIntervalSeconds`
 to lose less; `ForgeOpsTrackerClient.FlushPerformance()` queues a flush right now.
 
-A failed delivery keeps every tally, retried once per interval (not once per frame), so the next
-window just grows. What a flush delivered is *subtracted* from the tallies afterward, never the whole
+A delivery that fails for now (a network error, a timeout, a 5xx, a 408 or a 429) keeps every tally,
+retried once per interval (not once per frame), so the next window just grows. A batch the server
+rejects (any other 4xx) is dropped and never sent again, and so is a batch whose delivery has failed
+five flushes in a row. What a flush delivered is *subtracted* from the tallies afterward, never the whole
 set cleared: delivery takes at least a frame, so a record that lands in that window would otherwise
 be silently discarded, a real bug `sdks/go` had and fixed and that `gems/forge_ops_tracker`'s
 reference implementation still has. A deterministic test pins this. At most one flush is in flight
@@ -399,11 +401,13 @@ is suspended or quit is not delivered; shorten the intervals to lose less. Safe 
 thread. Every entry is stored as it was captured (a purchase is a row, not a running total), so a count
 or sum you compute later is exact. Both are a no-op when reporting isn't enabled for the environment.
 
-A failed delivery keeps every entry for the next flush, and an entry captured while a delivery is in
-flight is kept too (the Ruby gem's own buffer loses it; a test pins this by recording between the flush
-being handed to the driver and the driver reporting it delivered). Each buffer holds at most 1000
-entries and drops further ones until a flush succeeds, since a plan without the feature rejects every
-flush and would otherwise grow it for as long as the game runs. A NaN or infinite value is dropped at
+A delivery that fails for now (a network error, a timeout, a 5xx, a 408 or a 429) keeps every entry
+for the next flush, and an entry captured while a delivery is in flight is kept too (the Ruby gem's own
+buffer loses it; a test pins this by recording between the flush being handed to the driver and the
+driver reporting it delivered). A batch the server rejects (any other 4xx, such as the 403 of a plan
+without the feature) is dropped and never sent again, and so is a batch whose delivery has failed five
+flushes in a row. Each buffer holds at most 1000 entries and drops further ones until a flush empties
+it. A NaN or infinite value is dropped at
 capture: it is not valid JSON. Requires a ForgeOps plan that includes custom metrics / infrastructure
 monitoring.
 

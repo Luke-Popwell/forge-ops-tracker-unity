@@ -41,6 +41,7 @@ namespace ForgeOpsTracker.Unity
         private readonly Stopwatch _sinceLastAttempt = Stopwatch.StartNew();
         private DateTime _periodStartedAt = DateTime.UtcNow;
         private bool _inFlight;
+        private int _failedFlushes;
 
         /// <param name="queue">Resolved on every flush rather than captured: the queue only exists once <see cref="ForgeOpsTrackerClient.Init"/> has run.</param>
         public PerformanceFlusher(Configuration configuration, Func<DeliveryQueue> queue)
@@ -88,9 +89,11 @@ namespace ForgeOpsTracker.Unity
         /// Snapshots the buffered buckets and queues them for delivery as one batch (the driver
         /// delivers it on its next <c>Update</c>). A failed delivery keeps every bucket where it is,
         /// so the next flush's batch just grows instead of losing what was already tallied: there's
-        /// no other copy of this data anywhere.
+        /// no other copy of this data anywhere. Two limits on that: a batch the server rejected would
+        /// be rejected again however often it is re-sent, so it is dropped at once, and so is a batch
+        /// whose delivery has failed <see cref="DeliveryResults.MaxFailedFlushes"/> flushes in a row.
         ///
-        /// Only exactly what this snapshot delivered is removed afterward, subtracted from whatever
+        /// Only exactly what this snapshot delivered (or gave up on) is removed afterward, subtracted from whatever
         /// is in each bucket by then, never the whole set cleared outright. <see cref="Record"/> can
         /// run on another thread while delivery is in flight (and delivery here takes at least a
         /// frame), so a record for a transaction already in the snapshot, or a brand-new one, can
@@ -151,17 +154,18 @@ namespace ForgeOpsTracker.Unity
             }
 
             var payload = new Dictionary<string, object> { ["samples"] = samples };
-            // Push invokes the callback itself (with false) if the queue is full, so _inFlight is
-            // always cleared, whichever way this goes.
-            return queue.Push(payload, DeliveryTarget.PerformanceSamples, success => Complete(snapshot, periodEnd, success));
+            // PushWithResult invokes the callback itself (with Failed) if the queue is full, so
+            // _inFlight is always cleared, whichever way this goes.
+            return queue.PushWithResult(payload, DeliveryTarget.PerformanceSamples, result => Complete(snapshot, periodEnd, result));
         }
 
-        private void Complete(Dictionary<string, Bucket> snapshot, DateTime periodEnd, bool success)
+        private void Complete(Dictionary<string, Bucket> snapshot, DateTime periodEnd, DeliveryResult result)
         {
             lock (_lock)
             {
                 _inFlight = false;
-                if (!success) return;
+                if (result == DeliveryResult.Failed && ++_failedFlushes < DeliveryResults.MaxFailedFlushes) return;
+                _failedFlushes = 0;
 
                 foreach (var entry in snapshot)
                 {
@@ -186,6 +190,11 @@ namespace ForgeOpsTracker.Unity
                 }
                 _periodStartedAt = periodEnd;
             }
+
+            if (result != DeliveryResult.Delivered)
+            {
+                _configuration.Log($"[ForgeOpsTracker] dropped performance samples for {snapshot.Count} transactions: {DeliveryResults.DropReason(result)}");
+            }
         }
 
         /// <summary>Test-only: (count, durationSumMs, maxDurationMs) for one transaction, or null.</summary>
@@ -205,6 +214,7 @@ namespace ForgeOpsTracker.Unity
             {
                 _buckets.Clear();
                 _inFlight = false;
+                _failedFlushes = 0;
                 _periodStartedAt = DateTime.UtcNow;
             }
             _sinceLastAttempt.Restart();

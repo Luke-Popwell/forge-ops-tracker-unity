@@ -21,8 +21,8 @@ namespace ForgeOpsTracker.Unity
     ///   resetting the whole list, so an entry recorded while the request is in flight (delivery here
     ///   takes at least a frame) is kept for the next flush rather than lost.
     /// - The buffer is capped at <see cref="MaxEntries"/>, and once full further entries are dropped
-    ///   until a flush succeeds: a plan without the feature answers 403 on every flush, and an
-    ///   uncapped buffer would then grow for as long as the game runs. Dropping the newest rather than
+    ///   until a flush empties it: an endpoint that is down fails every flush, and an uncapped
+    ///   buffer would then keep growing until the batch is given up on. Dropping the newest rather than
     ///   the oldest keeps the entries a flush is delivering at the front of the list, which is what
     ///   makes removing exactly them afterward exact.
     /// - A NaN or infinite value is dropped at record time: <see cref="Json"/> would write it as
@@ -47,6 +47,7 @@ namespace ForgeOpsTracker.Unity
         private readonly Func<int> _intervalSeconds;
         private readonly Stopwatch _sinceLastAttempt = Stopwatch.StartNew();
         private bool _inFlight;
+        private int _failedFlushes;
 
         /// <param name="queue">Resolved on every flush rather than captured: the queue only exists once <see cref="ForgeOpsTrackerClient.Init"/> has run.</param>
         public MetricBuffer(Configuration configuration, Func<DeliveryQueue> queue, DeliveryTarget target, Func<int> intervalSeconds)
@@ -99,7 +100,10 @@ namespace ForgeOpsTracker.Unity
         /// <summary>
         /// Snapshots the buffered entries and queues them for delivery as one batch (the driver
         /// delivers it on its next Update). A failed delivery keeps every entry, so the next flush's
-        /// batch just grows. At most one flush is in flight at a time: a second call while one is
+        /// batch just grows, unless the server rejected the batch (it would reject it again) or this
+        /// is the fifth flush in a row to fail (<see cref="DeliveryResults.MaxFailedFlushes"/>): then
+        /// the batch is dropped, which is also what makes room in a full buffer again. At most one
+        /// flush is in flight at a time: a second call while one is
         /// pending does nothing, rather than delivering the same snapshot twice. Returns false when
         /// nothing was queued.
         /// </summary>
@@ -120,21 +124,27 @@ namespace ForgeOpsTracker.Unity
 
             var count = snapshot.Count;
             var payload = new Dictionary<string, object> { ["metrics"] = snapshot };
-            // Push invokes the callback itself (with false) if the queue is full, so _inFlight is
-            // always cleared, whichever way this goes.
-            return queue.Push(payload, _target, success => Complete(count, success));
+            // PushWithResult invokes the callback itself (with Failed) if the queue is full, so
+            // _inFlight is always cleared, whichever way this goes.
+            return queue.PushWithResult(payload, _target, result => Complete(count, result));
         }
 
-        private void Complete(int count, bool success)
+        private void Complete(int count, DeliveryResult result)
         {
             lock (_lock)
             {
                 _inFlight = false;
-                if (!success) return;
+                if (result == DeliveryResult.Failed && ++_failedFlushes < DeliveryResults.MaxFailedFlushes) return;
+                _failedFlushes = 0;
 
-                // Exactly the entries just delivered: anything recorded while the request was in
-                // flight sits after them and stays for the next flush.
+                // Exactly the entries just delivered (or given up on): anything recorded while the
+                // request was in flight sits after them and stays for the next flush.
                 _entries.RemoveRange(0, Math.Min(count, _entries.Count));
+            }
+
+            if (result != DeliveryResult.Delivered)
+            {
+                _configuration.Log($"[ForgeOpsTracker] dropped {count} metrics: {DeliveryResults.DropReason(result)}");
             }
         }
 
@@ -145,6 +155,7 @@ namespace ForgeOpsTracker.Unity
             {
                 _entries.Clear();
                 _inFlight = false;
+                _failedFlushes = 0;
             }
             _sinceLastAttempt.Restart();
         }

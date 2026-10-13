@@ -43,7 +43,7 @@ namespace ForgeOpsTracker.Unity
         {
             public Dictionary<string, object> Payload;
             public DeliveryTarget Target;
-            public Action<bool> OnComplete;
+            public Action<DeliveryResult> OnResult;
         }
 
         private readonly Queue<Item> _queue = new Queue<Item>();
@@ -74,19 +74,28 @@ namespace ForgeOpsTracker.Unity
         /// succeeded), or immediately with <c>false</c> if the queue is full and the payload is
         /// dropped, so a caller waiting on it is never left hanging.
         /// </summary>
-        public bool Push(Dictionary<string, object> payload, DeliveryTarget target, Action<bool> onComplete)
+        public bool Push(Dictionary<string, object> payload, DeliveryTarget target, Action<bool> onComplete) =>
+            PushWithResult(payload, target, onComplete == null ? (Action<DeliveryResult>)null : result => onComplete(result == DeliveryResult.Delivered));
+
+        /// <summary>
+        /// What <see cref="Push(Dictionary{string, object}, DeliveryTarget, Action{bool})"/> does, for
+        /// a caller that needs to tell a payload the server rejected apart from one that only failed
+        /// for now. A full queue answers <see cref="DeliveryResult.Failed"/>: nothing was sent, so
+        /// nothing was rejected.
+        /// </summary>
+        internal bool PushWithResult(Dictionary<string, object> payload, DeliveryTarget target, Action<DeliveryResult> onResult)
         {
             lock (_lock)
             {
                 if (_queue.Count < _maxSize)
                 {
-                    _queue.Enqueue(new Item { Payload = payload, Target = target, OnComplete = onComplete });
+                    _queue.Enqueue(new Item { Payload = payload, Target = target, OnResult = onResult });
                     return true;
                 }
             }
 
             _configuration.Log("[ForgeOpsTracker] delivery queue full, dropping event");
-            onComplete?.Invoke(false);
+            onResult?.Invoke(DeliveryResult.Failed);
             return false;
         }
 
@@ -94,20 +103,29 @@ namespace ForgeOpsTracker.Unity
 
         public bool TryDequeue(out Dictionary<string, object> payload, out DeliveryTarget target, out Action<bool> onComplete)
         {
+            var found = TryDequeueWithResult(out payload, out target, out var onResult);
+            // A bool can't say "rejected", so false from whoever delivers it is a failure for now.
+            onComplete = onResult == null ? (Action<bool>)null : success => onResult(DeliveryResults.FromBool(success));
+            return found;
+        }
+
+        /// <summary>The same dequeue, handing back the callback that takes the full <see cref="DeliveryResult"/>: what the driver uses.</summary>
+        internal bool TryDequeueWithResult(out Dictionary<string, object> payload, out DeliveryTarget target, out Action<DeliveryResult> onResult)
+        {
             lock (_lock)
             {
                 if (_queue.Count == 0)
                 {
                     payload = null;
                     target = DeliveryTarget.Events;
-                    onComplete = null;
+                    onResult = null;
                     return false;
                 }
 
                 var item = _queue.Dequeue();
                 payload = item.Payload;
                 target = item.Target;
-                onComplete = item.OnComplete;
+                onResult = item.OnResult;
                 return true;
             }
         }

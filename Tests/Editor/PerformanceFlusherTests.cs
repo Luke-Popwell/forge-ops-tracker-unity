@@ -35,6 +35,14 @@ namespace ForgeOpsTracker.Unity.Tests
             return payload;
         }
 
+        // The same, as the real driver does it: with the full outcome, which can say "rejected".
+        private static Dictionary<string, object> Deliver(DeliveryQueue queue, DeliveryResult result)
+        {
+            Assert.IsTrue(queue.TryDequeueWithResult(out var payload, out _, out var onResult));
+            onResult?.Invoke(result);
+            return payload;
+        }
+
         private static Dictionary<string, object> FirstSample(Dictionary<string, object> payload) =>
             ((List<Dictionary<string, object>>)payload["samples"])[0];
 
@@ -134,6 +142,77 @@ namespace ForgeOpsTracker.Unity.Tests
 
             Assert.AreEqual((1L, 25.0, 25.0), flusher.Tally("x").Value);
             Assert.AreEqual((1L, 7.0, 7.0), flusher.Tally("new").Value);
+        }
+
+        [Test]
+        public void A_rejected_batch_is_dropped_and_never_sent_again()
+        {
+            var log = new List<string>();
+            var (flusher, queue) = NewFlusher(EnabledConfiguration(c => c.Logger = log.Add));
+            flusher.Record("x", 10);
+
+            Assert.IsTrue(flusher.Flush());
+            Deliver(queue, DeliveryResult.Rejected);
+
+            Assert.IsNull(flusher.Tally("x"));
+            Assert.IsFalse(flusher.Flush(), "nothing left to send");
+            Assert.AreEqual(0, queue.Count);
+            Assert.AreEqual(1, log.FindAll(line => line.Contains("dropped performance samples for 1 transactions: the server rejected it")).Count);
+
+            flusher.Record("y", 20);
+            Assert.IsTrue(flusher.Flush());
+            var samples = (List<Dictionary<string, object>>)Deliver(queue, DeliveryResult.Delivered)["samples"];
+            Assert.AreEqual(1, samples.Count);
+            Assert.AreEqual("y", samples[0]["transaction_name"]);
+        }
+
+        [Test]
+        public void The_fifth_failed_flush_in_a_row_drops_the_batch()
+        {
+            var log = new List<string>();
+            var (flusher, queue) = NewFlusher(EnabledConfiguration(c => c.Logger = log.Add));
+            flusher.Record("x", 10);
+
+            for (var i = 0; i < 4; i++)
+            {
+                Assert.IsTrue(flusher.Flush());
+                Deliver(queue, DeliveryResult.Failed);
+            }
+            Assert.AreEqual((1L, 10.0, 10.0), flusher.Tally("x").Value, "four failures in: still kept");
+            Assert.AreEqual(0, log.FindAll(line => line.Contains("dropped")).Count);
+
+            Assert.IsTrue(flusher.Flush());
+            Deliver(queue, DeliveryResult.Failed);
+
+            Assert.IsNull(flusher.Tally("x"));
+            Assert.IsFalse(flusher.Flush(), "nothing left to send");
+            Assert.AreEqual(1, log.FindAll(line => line.Contains("delivery failed 5 times in a row")).Count);
+        }
+
+        [Test]
+        public void A_delivered_flush_starts_the_count_of_failed_flushes_over()
+        {
+            var (flusher, queue) = NewFlusher();
+            flusher.Record("x", 10);
+            for (var i = 0; i < 4; i++)
+            {
+                flusher.Flush();
+                Deliver(queue, DeliveryResult.Failed);
+            }
+            flusher.Flush();
+            Deliver(queue, DeliveryResult.Delivered);
+
+            flusher.Record("x", 10);
+            for (var i = 0; i < 4; i++)
+            {
+                flusher.Flush();
+                Deliver(queue, DeliveryResult.Failed);
+            }
+            Assert.IsNotNull(flusher.Tally("x"), "only four failures since the success");
+
+            flusher.Flush();
+            Deliver(queue, DeliveryResult.Failed);
+            Assert.IsNull(flusher.Tally("x"));
         }
 
         [Test]

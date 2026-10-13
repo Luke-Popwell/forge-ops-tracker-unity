@@ -15,9 +15,10 @@ namespace ForgeOpsTracker.Unity.Tests
             ServerName = "device-1"
         };
 
-        private static (MetricBuffer Buffer, DeliveryQueue Queue) NewBuffer(DeliveryTarget target = DeliveryTarget.CustomMetrics)
+        private static (MetricBuffer Buffer, DeliveryQueue Queue) NewBuffer(DeliveryTarget target = DeliveryTarget.CustomMetrics, List<string> log = null)
         {
             var config = EnabledConfiguration();
+            if (log != null) config.Logger = log.Add;
             var queue = new DeliveryQueue(config);
             return (new MetricBuffer(config, () => queue, target, () => 3600), queue);
         }
@@ -27,6 +28,14 @@ namespace ForgeOpsTracker.Unity.Tests
         {
             Assert.IsTrue(queue.TryDequeue(out var payload, out target, out var onComplete));
             onComplete?.Invoke(success);
+            return payload;
+        }
+
+        // The same, as the real driver does it: with the full outcome, which can say "rejected".
+        private static Dictionary<string, object> Deliver(DeliveryQueue queue, DeliveryResult result)
+        {
+            Assert.IsTrue(queue.TryDequeueWithResult(out var payload, out _, out var onResult));
+            onResult?.Invoke(result);
             return payload;
         }
 
@@ -88,6 +97,76 @@ namespace ForgeOpsTracker.Unity.Tests
             var payload = Deliver(queue, true, out _);
 
             Assert.AreEqual(new List<string> { "a", "b" }, Names(payload));
+            Assert.AreEqual(0, buffer.Count);
+        }
+
+        [Test]
+        public void A_rejected_batch_is_dropped_never_sent_again_and_leaves_room_for_new_entries()
+        {
+            var log = new List<string>();
+            var (buffer, queue) = NewBuffer(log: log);
+            for (var i = 0; i < MetricBuffer.MaxEntries; i++) buffer.Record(Entry("a", 1), 1);
+            Assert.IsFalse(buffer.Record(Entry("refused", 1), 1), "full");
+
+            buffer.Flush();
+            Deliver(queue, DeliveryResult.Rejected);
+
+            Assert.AreEqual(0, buffer.Count);
+            Assert.IsFalse(buffer.Flush(), "nothing left to send");
+            Assert.AreEqual(0, queue.Count);
+            Assert.AreEqual(1, log.Count(line => line.Contains("dropped 1000 metrics: the server rejected it")));
+
+            Assert.IsTrue(buffer.Record(Entry("b", 2), 2), "room again");
+            buffer.Flush();
+            Assert.AreEqual(new List<string> { "b" }, Names(Deliver(queue, DeliveryResult.Delivered)));
+        }
+
+        [Test]
+        public void The_fifth_failed_flush_in_a_row_drops_the_batch()
+        {
+            var log = new List<string>();
+            var (buffer, queue) = NewBuffer(log: log);
+            buffer.Record(Entry("a", 1), 1);
+
+            for (var i = 0; i < 4; i++)
+            {
+                Assert.IsTrue(buffer.Flush());
+                Deliver(queue, DeliveryResult.Failed);
+            }
+            Assert.AreEqual(1, buffer.Count, "four failures in: still kept");
+            Assert.AreEqual(0, log.Count(line => line.Contains("dropped")));
+
+            Assert.IsTrue(buffer.Flush());
+            Deliver(queue, DeliveryResult.Failed);
+
+            Assert.AreEqual(0, buffer.Count);
+            Assert.IsFalse(buffer.Flush(), "nothing left to send");
+            Assert.AreEqual(1, log.Count(line => line.Contains("dropped 1 metrics: delivery failed 5 times in a row")));
+        }
+
+        [Test]
+        public void A_delivered_flush_starts_the_count_of_failed_flushes_over()
+        {
+            var (buffer, queue) = NewBuffer();
+            buffer.Record(Entry("a", 1), 1);
+            for (var i = 0; i < 4; i++)
+            {
+                buffer.Flush();
+                Deliver(queue, DeliveryResult.Failed);
+            }
+            buffer.Flush();
+            Deliver(queue, DeliveryResult.Delivered);
+
+            buffer.Record(Entry("b", 2), 2);
+            for (var i = 0; i < 4; i++)
+            {
+                buffer.Flush();
+                Deliver(queue, DeliveryResult.Failed);
+            }
+            Assert.AreEqual(1, buffer.Count, "only four failures since the success");
+
+            buffer.Flush();
+            Deliver(queue, DeliveryResult.Failed);
             Assert.AreEqual(0, buffer.Count);
         }
 
