@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0 (2026-10-20)
+
+- Strict privacy: a span name or performance sample's transaction name that is a raw path (one with no route parameter such as `:id` or `{id}`) used to keep every segment without a digit, so `/players/jane-doe` went out as written. With `StrictPrivacy` on it is now cut to its first segment, then `/:path` if there was more: `GET /players/jane-doe/12` is sent as `GET /players/:path`. A route template (`GET /levels/:id/scores`) is sent as it is. With strict privacy off, nothing changes.
+- `StrictPrivacy.PathWithoutIds` is marked `[Obsolete]` in favour of the new `StrictPrivacy.StrictPath`, which it now calls.
+- Verified the same way as the rest of this package: compiled and tested under plain .NET against the hand-written `UnityEngine` stub (187 tests, all passing), not a real Editor.
+
 ## 0.14.0 (2026-10-20)
 
 - Strict privacy, for games and apps that can't let personal or health data leave the device. New `Configuration.StrictPrivacy` (off by default) sends an error as structured facts only: no message (a `message_fingerprint` computed on the device instead, so errors still group), no breadcrumbs (none are recorded), no SQL statement, no source context, the user's `id` only, and only the `context` and `tags` keys listed in the new `Configuration.PrivacyAllowedFields`, when their value is a string, number or boolean (the built-in `platform` and `unity_version` tags included). Spans are named by method and host for HTTP calls, with ids stripped from paths, and keep only `db.statement` and `db.system` as data. Both can be set with `FORGE_OPS_STRICT_PRIVACY=true` and `FORGE_OPS_PRIVACY_ALLOWED_FIELDS=error_code,feature`; a value set in `Init` wins. With it off, nothing changes. See the README's "Strict privacy" section. A transaction name that's a raw path rather than a route has its ids stripped the same way in performance samples. Span names, outbound hosts included, are read by hand rather than with a URL parser, so an address a parser would reject still loses its path.

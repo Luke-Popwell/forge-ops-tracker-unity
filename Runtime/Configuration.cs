@@ -182,8 +182,9 @@ namespace ForgeOpsTracker.Unity
         /// (none are recorded), SQL statement or source context, only the user's id, and only the
         /// context and tag keys named in <see cref="PrivacyAllowedFields"/> (so the default
         /// platform/unity_version tags go too, unless allowed). HTTP spans are named by method and host,
-        /// with ids stripped from paths, and keep no data beyond the masked statement and database
-        /// system. Off by default; FORGE_OPS_STRICT_PRIVACY=true turns it on. See <see cref="Unity.StrictPrivacy"/>.
+        /// with raw paths cut to their first segment, and keep no data beyond the masked statement and
+        /// database system. Off by default; FORGE_OPS_STRICT_PRIVACY=true turns it on. See
+        /// <see cref="Unity.StrictPrivacy"/>.
         /// </summary>
         public bool StrictPrivacy { get; set; } =
             Unity.StrictPrivacy.EnabledFromEnvironment(Environment.GetEnvironmentVariable("FORGE_OPS_STRICT_PRIVACY"));

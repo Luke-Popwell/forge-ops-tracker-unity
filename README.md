@@ -58,7 +58,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.14.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.15.0`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 
@@ -498,12 +498,14 @@ privacy on, an error is sent as structured facts only, never free text a person 
   value is a string, number or boolean. That includes the `platform` and `unity_version` tags this
   package adds itself: list them to keep them.
 
-Spans are reduced too: an HTTP span is named by method and host alone (`GET api.example.com`), a
-span named by a raw path (`"GET /levels/42"`, `"/levels/42"`) has its ids replaced with `:id`, and
-span data keeps only `db.statement` (already masked) and `db.system`. The exception class, stack
-frames, release, environment, device name and trace id are unchanged, as are metrics and changes.
-A transaction name that's a route or a function name is sent as it is, but one that's a raw path
-(`GET /levels/42`) has its ids replaced the same way in performance samples.
+Spans are reduced too: an HTTP span is named by method and host alone (`GET api.example.com`), and
+span data keeps only `db.statement` (already masked) and `db.system`. A raw path (one with no route
+parameter like `:id` or `{id}` in it) keeps only its first segment, then `/:path` if there was more,
+since anything after it can name a person: `/players/jane-doe/12` is sent as `/players/:path`,
+`/42/edit` as `/:id/:path`. A route template (`/levels/:id/scores`) is sent as it is, so reporting
+routes rather than raw paths loses nothing. That applies to span names and to performance samples'
+transaction names. The exception class, stack frames, release, environment, device name and trace id
+are unchanged, as are metrics and changes.
 
 ```csharp
 ForgeOpsTrackerClient.Init(c =>

@@ -64,40 +64,62 @@ namespace ForgeOpsTracker.Unity
         }
 
         /// <summary>
-        /// A path with its query and fragment dropped and every segment that holds an ASCII digit, or
-        /// is longer than 40 characters, replaced by ":id": "/patients/42/notes?q=x" is
-        /// "/patients/:id/notes". An empty result is "/".
+        /// A request or page path under strict privacy, with no query or fragment. A route template
+        /// ("/levels/:id/scores", "/orders/{id}") is kept as it is: its words are a developer's and its
+        /// parameters are already placeholders. A raw path keeps only its first segment (":id" when it
+        /// holds an ASCII digit or is longer than 40 characters), then "/:path" if there was more,
+        /// since anything after it can name a person: "/patients/jane-doe/12" is "/patients/:path". No
+        /// segments at all is "/".
         /// </summary>
-        public static string PathWithoutIds(string path)
+        public static string StrictPath(string path)
         {
             path = path ?? string.Empty;
             var cut = path.IndexOfAny(new[] { '?', '#' });
             if (cut >= 0) path = path.Substring(0, cut);
+            if (IsRouteTemplate(path)) return path;
 
-            var segments = new List<string>(path.Split('/'));
-            // Trailing empty segments are dropped, so "/orders/" and "/orders" read the same, matching
-            // the server's own split.
-            while (segments.Count > 0 && segments[segments.Count - 1].Length == 0) segments.RemoveAt(segments.Count - 1);
-            for (var i = 0; i < segments.Count; i++)
-            {
-                if (HasAsciiDigit(segments[i]) || CodePointCount(segments[i]) > 40) segments[i] = ":id";
-            }
-            var joined = string.Join("/", segments);
-            return joined.Length == 0 ? "/" : joined;
+            var segments = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0) return "/";
+
+            var first = HasAsciiDigit(segments[0]) || CodePointCount(segments[0]) > 40 ? ":id" : segments[0];
+            var leading = path.StartsWith("/", StringComparison.Ordinal) ? "/" : string.Empty;
+            return leading + first + (segments.Length > 1 ? "/:path" : string.Empty);
         }
+
+        /// <summary>The earlier name of <see cref="StrictPath"/>, which it now calls.</summary>
+        [Obsolete("Use StrictPath.")]
+        public static string PathWithoutIds(string path) => StrictPath(path);
+
+        // Whether any segment of the path is a route parameter: ":id", "{id}", "<int:id>", "[slug]" or
+        // "*path".
+        private static bool IsRouteTemplate(string path)
+        {
+            foreach (var segment in path.Split('/'))
+            {
+                if ((segment.Length > 1 && segment[0] == ':') || segment.StartsWith("*", StringComparison.Ordinal)
+                    || Wrapped(segment, '{', '}') || Wrapped(segment, '<', '>') || Wrapped(segment, '[', ']'))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool Wrapped(string segment, char open, char close) =>
+            segment.Length > 2 && segment[0] == open && segment[segment.Length - 1] == close;
 
         /// <summary>
         /// A span's name under strict privacy: an outbound call keeps its method and host
         /// ("GET https://api.example.com/patients/42?x=1" is "GET api.example.com"), a request named by
-        /// its path loses the ids in it ("GET /patients/42/notes" is "GET /patients/:id/notes"), so does
-        /// a bare path ("/patients/42" is "/patients/:id"), and any other name
+        /// its path goes through <see cref="StrictPath"/> ("GET /patients/42/notes" is
+        /// "GET /patients/:path"), so does a bare path ("/42/edit" is "/:id/:path"), and any other name
         /// ("OrdersController#create") is kept. The host is read by hand, never with System.Uri, so an
         /// address a parser would reject still loses its path.
         /// </summary>
         public static string SpanName(string name)
         {
             if (name == null) return null;
-            if (name.StartsWith("/", StringComparison.Ordinal)) return PathWithoutIds(name);
+            if (name.StartsWith("/", StringComparison.Ordinal)) return StrictPath(name);
 
             var match = HttpMethod.Match(name);
             if (!match.Success) return name;
@@ -105,12 +127,12 @@ namespace ForgeOpsTracker.Unity
             var method = match.Groups[1].Value.ToUpperInvariant();
             var target = match.Groups[2].Value;
             var host = target.StartsWith("/", StringComparison.Ordinal) ? null : HostOf(target);
-            return $"{method} {host ?? PathWithoutIds(target)}";
+            return $"{method} {host ?? StrictPath(target)}";
         }
 
         /// <summary>
         /// A transaction name under strict privacy: a route or a controller action is kept, but a raw
-        /// path loses its ids, by the same rule as <see cref="SpanName"/>. A blank name is returned as it is.
+        /// path keeps only its first segment, by the same rule as <see cref="SpanName"/>. A blank name is returned as it is.
         /// </summary>
         public static string TransactionName(string name) =>
             string.IsNullOrWhiteSpace(name) ? name : SpanName(name);

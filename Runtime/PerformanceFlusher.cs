@@ -54,7 +54,7 @@ namespace ForgeOpsTracker.Unity
         public void Record(string transactionName, double durationMs)
         {
             if (!_configuration.TrackPerformance || !_configuration.IsEnabled()) return;
-            // Under strict privacy a raw path loses its ids before it's ever a bucket's name.
+            // Under strict privacy a raw path keeps only its first segment before it's ever a bucket's name.
             if (_configuration.StrictPrivacy) transactionName = StrictPrivacy.TransactionName(transactionName);
 
             lock (_lock)

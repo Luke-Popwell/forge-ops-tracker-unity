@@ -136,19 +136,20 @@ namespace ForgeOpsTracker.Unity.Tests
         {
             foreach (var vector in Section("path"))
             {
-                Assert.AreEqual(vector["strict"], StrictPrivacy.PathWithoutIds(vector["path"]), vector["path"]);
+                Assert.AreEqual(vector["strict"], StrictPrivacy.StrictPath(vector["path"]), vector["path"]);
             }
         }
 
         [Test]
-        public void TransactionNamesLoseRawPathIdsAndKeepRoutes()
+        public void TransactionNamesKeepOnlyARawPathsFirstSegmentAndKeepRoutes()
         {
             var cases = new Dictionary<string, string>
             {
-                ["GET /patients/42/notes"] = "GET /patients/:id/notes",
+                ["GET /patients/42/notes"] = "GET /patients/:path",
+                ["GET /patients/jane-doe"] = "GET /patients/:path",
                 ["GET /levels/{id}"] = "GET /levels/{id}",
                 ["OrdersController#create"] = "OrdersController#create",
-                ["/patients/jane-doe-1961"] = "/patients/:id",
+                ["/patients/jane-doe-1961"] = "/patients/:path",
                 ["MyGame.LoadLevel"] = "MyGame.LoadLevel",
                 [""] = ""
             };
@@ -173,7 +174,7 @@ namespace ForgeOpsTracker.Unity.Tests
                 flusher.Record("GET /patients/42/notes", 10);
                 flusher.Record("GET /levels/{id}", 10);
 
-                Assert.AreEqual(strict, flusher.Tally("GET /patients/:id/notes").HasValue, $"strict={strict}");
+                Assert.AreEqual(strict, flusher.Tally("GET /patients/:path").HasValue, $"strict={strict}");
                 Assert.AreEqual(!strict, flusher.Tally("GET /patients/42/notes").HasValue, $"strict={strict}");
                 Assert.IsTrue(flusher.Tally("GET /levels/{id}").HasValue);
             }
@@ -320,7 +321,7 @@ namespace ForgeOpsTracker.Unity.Tests
             var spans = RecordSpans(StrictConfiguration());
 
             Assert.IsFalse(spans["GET api.example.com"].ContainsKey("data"));
-            Assert.IsFalse(spans["GET /patients/:id/notes"].ContainsKey("data"));
+            Assert.IsFalse(spans["GET /patients/:path"].ContainsKey("data"));
             CollectionAssert.AreEquivalent(
                 new Dictionary<string, object> { ["db.statement"] = "SELECT * FROM patients WHERE name = ?", ["db.system"] = "postgresql" },
                 (Dictionary<string, object>)spans["load patient"]["data"]);
