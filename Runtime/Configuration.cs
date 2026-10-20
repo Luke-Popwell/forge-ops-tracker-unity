@@ -176,6 +176,26 @@ namespace ForgeOpsTracker.Unity
         /// <summary>A trace is only sent when its root took at least this many seconds. 1, matching every other client's default.</summary>
         public double TraceCaptureThresholdSeconds { get; set; } = 1.0;
 
+        /// <summary>
+        /// Send only structured facts about an error, never free text that could hold personal or
+        /// health data: no message (a fingerprint of it instead, so errors still group), no breadcrumbs
+        /// (none are recorded), SQL statement or source context, only the user's id, and only the
+        /// context and tag keys named in <see cref="PrivacyAllowedFields"/> (so the default
+        /// platform/unity_version tags go too, unless allowed). HTTP spans are named by method and host,
+        /// with ids stripped from paths, and keep no data beyond the masked statement and database
+        /// system. Off by default; FORGE_OPS_STRICT_PRIVACY=true turns it on. See <see cref="Unity.StrictPrivacy"/>.
+        /// </summary>
+        public bool StrictPrivacy { get; set; } =
+            Unity.StrictPrivacy.EnabledFromEnvironment(Environment.GetEnvironmentVariable("FORGE_OPS_STRICT_PRIVACY"));
+
+        /// <summary>
+        /// The context and tag keys strict privacy still sends, when their value is a string, number or
+        /// boolean (your own error codes, say). Empty by default;
+        /// FORGE_OPS_PRIVACY_ALLOWED_FIELDS=error_code,feature sets it.
+        /// </summary>
+        public HashSet<string> PrivacyAllowedFields { get; set; } =
+            Unity.StrictPrivacy.FieldsFromEnvironment(Environment.GetEnvironmentVariable("FORGE_OPS_PRIVACY_ALLOWED_FIELDS"));
+
         public Action<string> Logger { get; set; }
 
         public string ApiKey

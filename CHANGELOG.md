@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.0 (2026-10-20)
+
+- Strict privacy, for games and apps that can't let personal or health data leave the device. New `Configuration.StrictPrivacy` (off by default) sends an error as structured facts only: no message (a `message_fingerprint` computed on the device instead, so errors still group), no breadcrumbs (none are recorded), no SQL statement, no source context, the user's `id` only, and only the `context` and `tags` keys listed in the new `Configuration.PrivacyAllowedFields`, when their value is a string, number or boolean (the built-in `platform` and `unity_version` tags included). Spans are named by method and host for HTTP calls, with ids stripped from paths, and keep only `db.statement` and `db.system` as data. Both can be set with `FORGE_OPS_STRICT_PRIVACY=true` and `FORGE_OPS_PRIVACY_ALLOWED_FIELDS=error_code,feature`; a value set in `Init` wins. With it off, nothing changes. See the README's "Strict privacy" section. A transaction name that's a raw path rather than a route has its ids stripped the same way in performance samples. Span names, outbound hosts included, are read by hand rather than with a URL parser, so an address a parser would reject still loses its path.
+- Verified the same way as the rest of this package: compiled and tested under plain .NET against the hand-written `UnityEngine` stub (187 tests, 13 of them new, all passing), not a real Editor.
+
 ## 0.13.0 (2026-10-13)
 
 - A batch the server will never accept is no longer re-sent forever. Performance samples and custom and infrastructure metrics used to keep a batch after any failed delivery and send it again, with more added, at every flush. A 4xx answer other than 408 and 429 (a wrong key, a plan without the feature, a batch the server can't read or that is too large) now drops the batch at once, since the same batch would only get the same answer. Before this, a rejected metric batch also stayed in the 1000-entry buffer, so once the buffer filled, every metric captured afterward was dropped too.

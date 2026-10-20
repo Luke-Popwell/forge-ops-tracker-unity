@@ -58,7 +58,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.13.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.14.0`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 
@@ -482,6 +482,44 @@ To disable it:
 ```csharp
 ForgeOpsTrackerClient.Init(c => c.ScrubPii = false);
 ```
+
+## Strict privacy
+
+For games and apps that can't let personal or health data (PII, PHI) leave the device. With strict
+privacy on, an error is sent as structured facts only, never free text a person could have typed:
+
+- no message: a `message_fingerprint` is sent instead, a one-way hash of the message (as PII
+  scrubbing leaves it) with its numbers, hex ids and UUIDs taken out, computed on the device, so
+  errors still group by message;
+- no breadcrumbs (`AddBreadcrumb` and the console breadcrumb source record nothing), no SQL
+  statement (`sql_objects`, the table and procedure names, still go), and no source context;
+- the user's `id` only, never an email or username;
+- `context` and `tags` keep only the keys you list in `PrivacyAllowedFields`, and only when the
+  value is a string, number or boolean. That includes the `platform` and `unity_version` tags this
+  package adds itself: list them to keep them.
+
+Spans are reduced too: an HTTP span is named by method and host alone (`GET api.example.com`), a
+span named by a raw path (`"GET /levels/42"`, `"/levels/42"`) has its ids replaced with `:id`, and
+span data keeps only `db.statement` (already masked) and `db.system`. The exception class, stack
+frames, release, environment, device name and trace id are unchanged, as are metrics and changes.
+A transaction name that's a route or a function name is sent as it is, but one that's a raw path
+(`GET /levels/42`) has its ids replaced the same way in performance samples.
+
+```csharp
+ForgeOpsTrackerClient.Init(c =>
+{
+    c.StrictPrivacy = true;
+    c.PrivacyAllowedFields = new HashSet<string> { "error_code", "platform" };
+});
+```
+
+Both are off and empty by default, and can be set from the environment instead (on platforms that
+have one, such as the Editor and desktop players): `FORGE_OPS_STRICT_PRIVACY=true` and
+`FORGE_OPS_PRIVACY_ALLOWED_FIELDS=error_code,feature` (comma separated). A value set in `Init`
+wins over the environment.
+
+ForgeOps applies the same rules again on arrival when the project's own Strict privacy setting is
+on, so a build with an older or misconfigured client still can't get text stored for that project.
 
 ## Dependencies
 

@@ -219,7 +219,9 @@ namespace ForgeOpsTracker.Unity
 
         /// <summary>
         /// Ends the trace and sends it if the root took long enough. Idempotent: a second call does
-        /// nothing, and spans recorded after it are dropped. <see cref="Dispose"/> calls this.
+        /// nothing, and spans recorded after it are dropped. <see cref="Dispose"/> calls this. With
+        /// <see cref="Configuration.StrictPrivacy"/> on, every span goes out as
+        /// <see cref="StrictPrivacy.Span"/> leaves it.
         /// </summary>
         public void Finish()
         {
@@ -240,6 +242,10 @@ namespace ForgeOpsTracker.Unity
 
             var all = new List<object> { Build(_rootSpanId, null, _name, "controller", _startedAt, durationMs, null) };
             all.AddRange(recorded);
+            if (_configuration.StrictPrivacy)
+            {
+                for (var i = 0; i < all.Count; i++) all[i] = StrictPrivacy.Span((Dictionary<string, object>)all[i]);
+            }
             _deliver(new Dictionary<string, object> { ["trace_id"] = TraceId, ["spans"] = all });
         }
 

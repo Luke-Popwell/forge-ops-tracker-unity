@@ -159,7 +159,8 @@ namespace ForgeOpsTracker.Unity
 
             AttachSql(configuration, payload, rawSql);
 
-            return payload;
+            // Last, so the fingerprint is of the message as it would otherwise have been sent.
+            return configuration.StrictPrivacy ? StrictPrivacy.Event(payload, configuration.PrivacyAllowedFields) : payload;
         }
 
         // See SqlStatement for what's read off the exception and how it's masked. The statement itself
@@ -258,7 +259,8 @@ namespace ForgeOpsTracker.Unity
         /// <summary>
         /// Reads a few lines of source straight off disk around a frame's culprit line, the same
         /// way gems/forge_ops_tracker's own EventBuilder#attach_source_context does. Gated on
-        /// three things: <see cref="Configuration.CaptureSourceContext"/> has to be on, the frame
+        /// three things: <see cref="Configuration.CaptureSourceContext"/> has to be on (and
+        /// <see cref="Configuration.StrictPrivacy"/> off), the frame
         /// has to be in-app (never a third-party dependency: there'd be nothing meaningful to
         /// show, and it isn't the host project's own code), and <paramref name="file"/>/
         /// <paramref name="line"/> both have to be present at all.
@@ -279,7 +281,7 @@ namespace ForgeOpsTracker.Unity
         /// </summary>
         private static void AttachSourceContext(Configuration configuration, Dictionary<string, object> frame, string file, int? line, bool inApp)
         {
-            if (!configuration.CaptureSourceContext || !inApp || file == null || line == null)
+            if (!configuration.CaptureSourceContext || configuration.StrictPrivacy || !inApp || file == null || line == null)
             {
                 return;
             }

@@ -38,7 +38,8 @@ namespace ForgeOpsTracker.Unity
             // Read fresh on every add, not captured once at construction: a change made after
             // Init should take effect on whatever's added next.
             var maxSize = Math.Max(_configuration.MaxBreadcrumbs, 0);
-            if (!_configuration.TrackBreadcrumbs || maxSize == 0) return;
+            // Strict privacy never sends breadcrumbs, so none are recorded either.
+            if (!_configuration.TrackBreadcrumbs || _configuration.StrictPrivacy || maxSize == 0) return;
 
             var entry = new Dictionary<string, object>
             {
