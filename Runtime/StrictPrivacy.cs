@@ -20,6 +20,13 @@ namespace ForgeOpsTracker.Unity
 
         // Explicit ASCII classes, so a word character is [A-Za-z0-9_] only, never a letter or digit in
         // another script, whatever .NET's own \w or \d would accept.
+        private static readonly Regex Email = new Regex(
+            @"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // A quoted value (KeyError: 'Jane Doe') is data, not the shape of the error. Single quotes only open
+        // and close at a word boundary, so a contraction (Couldn't) or the `email' style never starts one.
+        private static readonly Regex DoubleQuoted = new Regex("\"[^\"\r\n]*\"", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        private static readonly Regex SingleQuoted = new Regex(
+            "(?<![A-Za-z0-9_])'[^'\r\n]*'(?![A-Za-z0-9_])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex HexObjectId = new Regex("0x[0-9a-fA-F]{4,}", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex Uuid = new Regex(
             "(?<![A-Za-z0-9_])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![A-Za-z0-9_])",
@@ -36,13 +43,18 @@ namespace ForgeOpsTracker.Unity
         private static readonly string[] SpanDataKeys = { "db.statement", "db.system" };
 
         /// <summary>
-        /// The message with hex object ids, UUIDs and standalone numbers replaced, in that order: "0x"
-        /// plus 4 or more hex digits becomes "0x", a UUID becomes "&lt;uuid&gt;" and a run of digits
-        /// becomes "&lt;n&gt;", the last two only where no ASCII word character touches them.
+        /// The message with emails, quoted values, hex object ids, UUIDs and standalone numbers replaced,
+        /// in that order: an email address becomes "&lt;email&gt;", a double-quoted run (or a
+        /// single-quoted one no ASCII word character touches) becomes "&lt;str&gt;", "0x" plus 4 or
+        /// more hex digits becomes "0x", a UUID becomes "&lt;uuid&gt;" and a run of digits becomes
+        /// "&lt;n&gt;", the last two only where no ASCII word character touches them.
         /// </summary>
         public static string NormalizeMessage(string message)
         {
-            var normalized = HexObjectId.Replace(message ?? string.Empty, "0x");
+            var normalized = Email.Replace(message ?? string.Empty, "<email>");
+            normalized = DoubleQuoted.Replace(normalized, "<str>");
+            normalized = SingleQuoted.Replace(normalized, "<str>");
+            normalized = HexObjectId.Replace(normalized, "0x");
             normalized = Uuid.Replace(normalized, "<uuid>");
             return Number.Replace(normalized, "<n>");
         }
