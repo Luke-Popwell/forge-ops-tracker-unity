@@ -3,6 +3,8 @@
 Unity error reporting package for a [ForgeOps](https://getforgeops.net) project.
 Requires Unity 2021.3 LTS or newer.
 
+> For health or personal data, turn on [strict privacy](#strict-privacy): the SDK then sends only structured facts about each error (its type, stack trace, release and route), never the message, a raw path, breadcrumbs, or context you haven't allowed.
+
 ## A note on how this SDK was built, read before using it
 
 Unity ships as a GUI installer (Unity Hub) requiring an interactive license login, with no
@@ -58,7 +60,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.15.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.15.1`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 

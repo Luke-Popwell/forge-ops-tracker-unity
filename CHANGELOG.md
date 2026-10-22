@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.1 (2026-10-22)
+
+- The README says what strict privacy does in its opening lines.
+
 ## 0.15.0 (2026-10-20)
 
 - Strict privacy: a span name or performance sample's transaction name that is a raw path (one with no route parameter such as `:id` or `{id}`) used to keep every segment without a digit, so `/players/jane-doe` went out as written. With `StrictPrivacy` on it is now cut to its first segment, then `/:path` if there was more: `GET /players/jane-doe/12` is sent as `GET /players/:path`. A route template (`GET /levels/:id/scores`) is sent as it is. With strict privacy off, nothing changes.
