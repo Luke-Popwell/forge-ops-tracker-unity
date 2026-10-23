@@ -1,4 +1,8 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Text;
 using NUnit.Framework;
 
 namespace ForgeOpsTracker.Unity.Tests
@@ -107,6 +111,91 @@ namespace ForgeOpsTracker.Unity.Tests
             var input = new Dictionary<string, object> { ["order_id"] = 42 };
             var scrubbed = (Dictionary<string, object>)PiiScrubber.Scrub(input);
             Assert.AreEqual(42, scrubbed["order_id"]);
+        }
+
+        // Fixtures/pii_scrubbing_vectors.json, a byte-identical copy of this repo's
+        // sdks/pii_scrubbing_vectors.json, generated from the server's own PiiScrubber (see
+        // sdks/PII_SCRUBBING.md). Found next to this source file, as StrictPrivacyTests finds its own.
+        private static string VectorsPath([CallerFilePath] string here = "") =>
+            Path.Combine(Path.GetDirectoryName(here), "Fixtures", "pii_scrubbing_vectors.json");
+
+        // The objects in one of the vectors file's sections, as key/value string pairs, a bare true or
+        // false kept as its text. A tiny purpose-built reader like StrictPrivacyTests' own, not a JSON
+        // parser: the file holds only arrays of flat objects of strings and booleans, whose only
+        // escapes are \t, \n, \" and \\.
+        private static List<Dictionary<string, string>> Section(string name)
+        {
+            var text = File.ReadAllText(VectorsPath(), Encoding.UTF8);
+            var start = text.IndexOf($"\"{name}\": [", StringComparison.Ordinal);
+            Assert.GreaterOrEqual(start, 0, name);
+
+            var entries = new List<Dictionary<string, string>>();
+            var entry = new Dictionary<string, string>();
+            string key = null;
+            for (var i = start + name.Length + 4; i < text.Length; i++)
+            {
+                var c = text[i];
+                if (c == ']') break;
+                if (c == '}')
+                {
+                    entries.Add(entry);
+                    entry = new Dictionary<string, string>();
+                }
+                if (key != null && (c == 't' || c == 'f'))
+                {
+                    var literal = c == 't' ? "true" : "false";
+                    entry[key] = literal;
+                    key = null;
+                    i += literal.Length - 1;
+                    continue;
+                }
+                if (c != '"') continue;
+
+                var value = new StringBuilder();
+                for (i++; text[i] != '"'; i++)
+                {
+                    if (text[i] == '\\')
+                    {
+                        i++;
+                        value.Append(text[i] == 't' ? '\t' : text[i] == 'n' ? '\n' : text[i]);
+                    }
+                    else
+                    {
+                        value.Append(text[i]);
+                    }
+                }
+                if (key == null)
+                {
+                    key = value.ToString();
+                }
+                else
+                {
+                    entry[key] = value.ToString();
+                    key = null;
+                }
+            }
+            Assert.IsNotEmpty(entries, name);
+            return entries;
+        }
+
+        [Test]
+        public void Scrubs_card_numbers_and_ibans_in_every_vector_exactly_as_the_server_does()
+        {
+            foreach (var vector in Section("strings"))
+            {
+                Assert.AreEqual(vector["scrubbed"], PiiScrubber.ScrubString(vector["input"]), vector["input"]);
+            }
+        }
+
+        [Test]
+        public void Redacts_bank_detail_keys_in_every_vector_exactly_as_the_server_does()
+        {
+            foreach (var vector in Section("keys"))
+            {
+                var key = vector["key"];
+                var scrubbed = (Dictionary<string, object>)PiiScrubber.Scrub(new Dictionary<string, object> { [key] = "x" });
+                Assert.AreEqual(vector["redacted"] == "true" ? PiiScrubber.Redacted : "x", scrubbed[key], key);
+            }
         }
     }
 }
