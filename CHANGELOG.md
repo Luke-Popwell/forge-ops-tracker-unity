@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.0 (2026-10-27)
+
+- `ForgeOpsTrackerClient.Init` now logs one warning when a DSN is set but nothing will be sent: when the
+  DSN isn't an `https://` address with its API key (for example, pasted with `FORGE_OPS_DSN=` in front), or
+  when the environment isn't enabled (Play mode in the Editor counts as `development`). It goes through
+  `Configuration.Logger`, or `Debug.LogWarning` when there is none. Before this, both were silent.
+
 ## 0.18.0 (2026-10-27)
 
 - Every file and folder in the package now ships its `.meta` file. Unity installs a git package into a folder

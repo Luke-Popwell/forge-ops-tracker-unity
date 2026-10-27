@@ -12,6 +12,55 @@ namespace ForgeOpsTracker.Unity.Tests
         }
 
         [Test]
+        public void NotSendingWarning_is_null_when_the_dsn_and_environment_will_send()
+        {
+            var config = new Configuration { Dsn = "https://mykey@getforgeops.net/api/v1/events", EnvironmentName = "production" };
+            Assert.IsNull(config.NotSendingWarning());
+        }
+
+        [Test]
+        public void NotSendingWarning_is_null_without_a_dsn()
+        {
+            var config = new Configuration { Dsn = null, EnvironmentName = "development" };
+            Assert.IsNull(config.NotSendingWarning());
+        }
+
+        [Test]
+        public void NotSendingWarning_names_an_environment_that_does_not_send()
+        {
+            var config = new Configuration { Dsn = "https://mykey@getforgeops.net/api/v1/events", EnvironmentName = "development" };
+            Assert.AreEqual(
+                "[ForgeOps] Not sending: this environment is \"development\", and only production, staging are enabled. "
+                + "Set c.EnvironmentName = \"production\" in ForgeOpsTrackerClient.Init (or FORGE_OPS_ENVIRONMENT=production), "
+                + "or add \"development\" to EnabledEnvironments, to send from here.",
+                config.NotSendingWarning());
+        }
+
+        [Test]
+        public void NotSendingWarning_catches_a_dsn_pasted_with_the_variable_name_in_front()
+        {
+            var config = new Configuration { Dsn = "FORGE_OPS_DSN=https://mykey@getforgeops.net/api/v1/events", EnvironmentName = "production" };
+            StringAssert.StartsWith("[ForgeOps] Not sending: the DSN isn't a ForgeOps address.", config.NotSendingWarning());
+        }
+
+        [Test]
+        public void NotSendingWarning_catches_a_dsn_without_its_api_key()
+        {
+            var config = new Configuration { Dsn = "https://getforgeops.net/api/v1/events", EnvironmentName = "production" };
+            StringAssert.StartsWith("[ForgeOps] Not sending: the DSN isn't a ForgeOps address.", config.NotSendingWarning());
+        }
+
+        [Test]
+        public void WarnIfNotSending_goes_through_the_logger()
+        {
+            var logged = new System.Collections.Generic.List<string>();
+            var config = new Configuration { Dsn = "https://mykey@getforgeops.net/api/v1/events", EnvironmentName = "development", Logger = logged.Add };
+            config.WarnIfNotSending();
+            Assert.AreEqual(1, logged.Count);
+            StringAssert.StartsWith("[ForgeOps] Not sending: this environment is \"development\"", logged[0]);
+        }
+
+        [Test]
         public void ApiKey_is_null_when_dsn_has_no_userinfo()
         {
             var config = new Configuration { Dsn = "https://host.example.com/api/v1/events" };

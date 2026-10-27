@@ -60,6 +60,7 @@ namespace ForgeOpsTracker.Unity
         public static void Init(Action<Configuration> configure)
         {
             configure?.Invoke(Config);
+            Config.WarnIfNotSending();
 
             _queue = new DeliveryQueue(Config);
             _driver = ForgeOpsTrackerDriver.Create(Config, _queue);

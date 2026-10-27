@@ -259,6 +259,55 @@ namespace ForgeOpsTracker.Unity
             && !string.IsNullOrEmpty(ApiKey)
             && EnabledEnvironments.Contains(EnvironmentName);
 
+        /// <summary>
+        /// The one warning <see cref="ForgeOpsTrackerClient.Init"/> gives when a DSN is set but nothing
+        /// will be sent, or null when there's nothing to say. Either way every capture is otherwise
+        /// dropped without a word, which looks exactly like a broken setup: found the first time the
+        /// package ran in a real Editor, where Play mode counts as "development" and a DSN pasted with
+        /// "FORGE_OPS_DSN=" in front of it went to localhost.
+        /// </summary>
+        internal string NotSendingWarning()
+        {
+            if (string.IsNullOrWhiteSpace(Dsn)) return null;
+
+            var dsn = Dsn.Trim();
+            var http = dsn.StartsWith("https://", StringComparison.Ordinal) || dsn.StartsWith("http://", StringComparison.Ordinal);
+            if (!http || string.IsNullOrEmpty(ApiKey))
+            {
+                return "[ForgeOps] Not sending: the DSN isn't a ForgeOps address. It should look like "
+                    + "https://<api_key>@getforgeops.net/api/v1/events, copied from your project's install step, "
+                    + "with nothing before https://.";
+            }
+            if (EnabledEnvironments.Contains(EnvironmentName)) return null;
+
+            var enabled = new List<string>();
+            foreach (var name in EnabledEnvironments) enabled.Add(name.ToLowerInvariant());
+            enabled.Sort(StringComparer.Ordinal);
+            return $"[ForgeOps] Not sending: this environment is \"{EnvironmentName}\", and only {string.Join(", ", enabled)} are enabled. "
+                + $"Set c.EnvironmentName = \"production\" in ForgeOpsTrackerClient.Init (or FORGE_OPS_ENVIRONMENT=production), "
+                + $"or add \"{EnvironmentName}\" to EnabledEnvironments, to send from here.";
+        }
+
+        /// <summary>
+        /// Logs <see cref="NotSendingWarning"/>, if there is one, through <see cref="Logger"/>, or as a
+        /// console warning when there's none. Called once, from <see cref="ForgeOpsTrackerClient.Init"/>.
+        /// </summary>
+        internal void WarnIfNotSending()
+        {
+            try
+            {
+                var warning = NotSendingWarning();
+                if (warning == null) return;
+
+                if (Logger != null) Log(warning);
+                else Debug.LogWarning(warning);
+            }
+            catch
+            {
+                // A warning must never break startup.
+            }
+        }
+
         public void Log(string message)
         {
             try

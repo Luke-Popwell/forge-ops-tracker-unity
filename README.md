@@ -58,7 +58,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.18.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.19.0`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 
@@ -80,6 +80,14 @@ ForgeOpsTrackerClient.Init(c =>
 `Configuration.cs`'s own comment: a DSN carries a bearer credential, and a `ScriptableObject`
 asset ships inside every build, including ones a player can pull apart. Set it from code, ideally
 sourced from a build step or a value kept out of source control.
+
+In the Editor and in development builds the environment is `development`, which doesn't send: set
+`EnvironmentName` to `"production"` or `"staging"` to send from Play mode. When a DSN is set but nothing will
+be sent, `Init` logs one warning saying why, through `Logger` or as a console warning:
+
+```
+[ForgeOps] Not sending: this environment is "development", and only production, staging are enabled. Set c.EnvironmentName = "production" in ForgeOpsTrackerClient.Init (or FORGE_OPS_ENVIRONMENT=production), or add "development" to EnabledEnvironments, to send from here.
+```
 
 ## What gets reported automatically, and what doesn't
 
