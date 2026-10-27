@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.0 (2026-10-27)
+
+- Every file and folder in the package now ships its `.meta` file. Unity installs a git package into a folder
+  it can't write to, and ignores any asset there without one, so before this release the package installed but
+  none of it loaded. Found by installing it in a real Unity Editor.
+
 ## 0.17.0 (2026-10-23)
 
 - PII scrubbing catches card numbers however they're grouped (bare, 4-4-4-4, Amex's 4-6-5, or next to a

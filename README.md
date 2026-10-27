@@ -35,12 +35,10 @@ Unity's long-stable, publicly documented behavior for instead:
   already accounts for WebGL having no raw sockets, see "Delivery" below, but that account is
   unverified against a real WebGL build).
 
-One more concrete gap from the same root cause: Unity generates a `.meta` file (a stable GUID plus
-import settings) alongside every asset the first time it's opened in the Editor, and normally
-those are committed alongside the asset itself. None exist here, since nothing in this package has
-ever been opened in an Editor. Unity will generate them automatically the first time this package
-is imported into a real project: expect that as a one-time, harmless diff (new `.meta` files
-appearing) on first import, not a sign anything is broken.
+Every file and folder ships its `.meta` file (a stable GUID plus import settings), written by
+`script/generate_unity_meta.rb` in the ForgeOps repository rather than by an Editor. They have to: Unity
+installs a git package into a folder it can't write to and ignores any asset there without one, which is
+what happened to every file before 0.18.0, found by installing the package in a real Editor.
 
 **Before shipping this in a real project**: import the package, run its EditMode test suite (see
 "Running the tests" below) inside a real Unity Editor, and smoke-test both an uncaught exception
@@ -60,7 +58,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.17.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.18.0`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 
