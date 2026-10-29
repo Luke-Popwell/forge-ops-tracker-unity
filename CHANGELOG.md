@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.19.1 (2026-10-29)
+
+- README only, no code changes. The opening note now says what has been tested (a real Unity 6 Editor on
+  macOS, in Play mode) and what hasn't yet (player builds, IL2CPP, WebGL, the Test Runner).
+
 ## 0.19.0 (2026-10-27)
 
 - `ForgeOpsTrackerClient.Init` now logs one warning when a DSN is set but nothing will be sent: when the

@@ -5,45 +5,31 @@ Requires Unity 2021.3 LTS or newer.
 
 > For health or personal data, turn on [strict privacy](#strict-privacy): the SDK then sends only structured facts about each error (its type, stack trace, release and route), never the message, a raw path, breadcrumbs, or context you haven't allowed.
 
-## A note on how this SDK was built, read before using it
+## What has been tested, read before using it
 
-Unity ships as a GUI installer (Unity Hub) requiring an interactive license login, with no
-scriptable, headless install path available in this environment, so there was no way to install
-the Unity Editor itself here to build and run this package's real test suite against it.
+Tested in a real Unity Editor (Unity 6, 6000.0.85f1, on macOS): the package installs from its git URL,
+`Init` runs, and both an uncaught exception from a `MonoBehaviour` and an explicit `CaptureException`
+reach ForgeOps from Play mode. Every pure-logic piece (`Configuration`, `PiiScrubber`, `Json`, the
+backtrace parsing, `DeliveryQueue`'s thread safety and the rest of `Tests/Editor`) is also compiled and
+unit tested on each release under plain .NET, against a hand-written stub of the `UnityEngine` API it
+uses. That process caught one real bug: the backtrace regex's first draft expected a
+`[0x0001f] in file:line` format, where a real `Exception.StackTrace` reads `in file:line 42` (see
+`EventBuilder.cs`).
 
-To close that gap as much as honestly possible without the real Editor, this package's source was
-instead checked against a hand-written stub of the exact `UnityEngine`/`UnityEngine.Networking`
-API surface it uses, compiled and unit-tested for real under the plain .NET runtime available in
-this environment. That caught and fixed one real, verified bug: the backtrace-parsing regex's
-first draft assumed a Mono-desktop-era `Exception.StackTrace` format
-(`[0x0001f] in file:line`), which a real caught exception's actual `.StackTrace` value in this
-environment showed to be wrong: the real format has no bracketed offset at all
-(`in file:line 42`, "line" spelled out): see `EventBuilder.cs`'s own comment on the fix. Every
-pure-logic piece (`Configuration`, `PiiScrubber`, `Json`, that regex, `DeliveryQueue`'s thread
-safety) was therefore genuinely exercised, not just written from documentation.
+Not yet tested, and written from Unity's documented behavior instead:
 
-What that stub-and-test process could **not** verify, and this package's design was written from
-Unity's long-stable, publicly documented behavior for instead:
+- A player build of any kind, and anything IL2CPP specific: AOT limits, whether file and line
+  information survives a release build, and WebGL's single threaded model (the design accounts for
+  WebGL having no sockets, see "Delivery" below, but no WebGL build has run it).
+- The EditMode test suite under Unity's own Test Runner, rather than the stub.
 
-- Unity's own console/log-callback stack trace format (the separate
-  `Application.logMessageReceivedThreaded` path, distinct from `Exception.StackTrace` above):
-  see `EventBuilder.cs`'s own doc comment.
-- Whether `MonoBehaviour.Update()`, `UnityWebRequest`, coroutines, and the rest of the real engine
-  runtime behave exactly as documented under an actual Editor or IL2CPP player build.
-- Anything IL2CPP-specific: AOT compilation limits, whether file/line info survives a release
-  build with symbols stripped, and WebGL's single-threaded execution model (this package's design
-  already accounts for WebGL having no raw sockets, see "Delivery" below, but that account is
-  unverified against a real WebGL build).
+**Before shipping this in a real game**: smoke test an uncaught exception and a `CaptureException` call
+in a build for each platform you ship, IL2CPP included.
 
 Every file and folder ships its `.meta` file (a stable GUID plus import settings), written by
 `script/generate_unity_meta.rb` in the ForgeOps repository rather than by an Editor. They have to: Unity
 installs a git package into a folder it can't write to and ignores any asset there without one, which is
 what happened to every file before 0.18.0, found by installing the package in a real Editor.
-
-**Before shipping this in a real project**: import the package, run its EditMode test suite (see
-"Running the tests" below) inside a real Unity Editor, and smoke-test both an uncaught exception
-and an explicit `CaptureException` call in at least one IL2CPP build target before relying on it in
-production.
 
 ## Installation
 
@@ -58,7 +44,7 @@ or by adding it to `Packages/manifest.json` yourself:
 }
 ```
 
-To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.19.0`. That
+To pin a release, add a tag to the URL, for example `...forge-ops-tracker-unity.git#0.19.1`. That
 repository is a read-only mirror of this directory, refreshed on every release; this package is not
 on a UPM registry or the Asset Store.
 
@@ -101,9 +87,8 @@ own game code started (not a thread Unity's own player loop already protects).
 
 **This does not cover a true native crash**: a segfault in IL2CPP-compiled code, a native
 plugin, or the engine itself. There is no signal handler or platform-native crash store here;
-building one would need a real per-platform native crash-reporting layer (the approach Unity's own
-Cloud Diagnostics and other Unity crash-reporting SDKs take), which could not be built or verified
-without real device builds in this environment. See the note at the top of this README.
+that needs a native crash-reporting layer for each platform, built and tested on real device builds.
+See the note at the top of this README.
 
 For an exception you've already caught yourself and want to report explicitly (optionally with
 extra context):
@@ -570,9 +555,9 @@ database's own error message usually settles which it was.
 
 This package ships EditMode tests (`Tests/Editor`, using Unity's built-in Test Framework package,
 `com.unity.test-framework`) covering `Configuration`, `PiiScrubber`, `Json`, `EventBuilder`, and
-`DeliveryQueue`: everything that doesn't need a live scene or a real `UnityWebRequest`. These
-could not be run in this environment (see the note at the top of this README) and must be run for
-real before depending on this package:
+`DeliveryQueue`: everything that doesn't need a live scene or a real `UnityWebRequest`. On each
+release they run under plain .NET against the `UnityEngine` stub (see the note at the top of this
+README); to run them under Unity's own Test Runner:
 
 ```
 Window > General > Test Runner > EditMode > Run All
@@ -584,6 +569,5 @@ or headless from the command line:
 /path/to/Unity -batchmode -projectPath . -runTests -testPlatform EditMode -testResults results.xml
 ```
 
-There is deliberately no PlayMode test for `ForgeOpsTrackerDriver`/`Client`'s actual
-`UnityWebRequest` delivery: that needs a running scene and a real local HTTP server, which was
-not possible to set up and verify in this environment.
+There is no PlayMode test for `ForgeOpsTrackerDriver`/`Client`'s actual `UnityWebRequest` delivery:
+that needs a running scene and a local HTTP server. Delivery was checked by hand in the Editor instead.
