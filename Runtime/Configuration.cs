@@ -179,7 +179,8 @@ namespace ForgeOpsTracker.Unity
         /// <summary>
         /// Send only structured facts about an error, never free text that could hold personal or
         /// health data: no message (a fingerprint of it instead, so errors still group), no breadcrumbs
-        /// (none are recorded), SQL statement or source context, only the user's id, and only the
+        /// (none are recorded), SQL statement or source context, the user's id only as a keyed hash
+        /// (<see cref="PrivacyUserKey"/>), and only the
         /// context and tag keys named in <see cref="PrivacyAllowedFields"/> (so the default
         /// platform/unity_version tags go too, unless allowed). HTTP spans are named by method and host,
         /// with raw paths cut to their first segment, and keep no data beyond the masked statement and
@@ -196,6 +197,22 @@ namespace ForgeOpsTracker.Unity
         /// </summary>
         public HashSet<string> PrivacyAllowedFields { get; set; } =
             Unity.StrictPrivacy.FieldsFromEnvironment(Environment.GetEnvironmentVariable("FORGE_OPS_PRIVACY_ALLOWED_FIELDS"));
+
+        /// <summary>
+        /// Strict privacy sends the user's id only as a keyed hash
+        /// (<see cref="Unity.StrictPrivacy.HashedUserId"/>) with this secret; unset, no user is sent at
+        /// all. It ships inside the game, so anyone can read it out of the build: it protects the id less
+        /// than a key kept on a server. Keep it the same across releases, or the same player counts as
+        /// two. FORGE_OPS_PRIVACY_USER_KEY sets it; an empty key counts as unset.
+        /// </summary>
+        public string PrivacyUserKey
+        {
+            get => _privacyUserKey;
+            set => _privacyUserKey = string.IsNullOrEmpty(value) ? null : value;
+        }
+
+        private string _privacyUserKey =
+            Unity.StrictPrivacy.KeyFromEnvironment(Environment.GetEnvironmentVariable("FORGE_OPS_PRIVACY_USER_KEY"));
 
         public Action<string> Logger { get; set; }
 

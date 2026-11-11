@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.0 (2026-11-11)
+
+- Strict privacy no longer sends the user's raw `id`, which could be a record number that identifies a
+  person. Set `PrivacyUserKey` (or `FORGE_OPS_PRIVACY_USER_KEY`) and the id is sent as a keyed hash
+  (HMAC-SHA256 with your key), so affected players are still counted. Without a key, no user is sent at
+  all. The key ships inside your game and can be read out of it, so it protects the id less than a key
+  kept on a server; leave it unset to send no user from the game.
+
 ## 0.19.1 (2026-10-29)
 
 - README only, no code changes. The opening note now says what has been tested (a real Unity 6 Editor on

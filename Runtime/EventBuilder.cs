@@ -160,7 +160,7 @@ namespace ForgeOpsTracker.Unity
             AttachSql(configuration, payload, rawSql);
 
             // Last, so the fingerprint is of the message as it would otherwise have been sent.
-            return configuration.StrictPrivacy ? StrictPrivacy.Event(payload, configuration.PrivacyAllowedFields) : payload;
+            return configuration.StrictPrivacy ? StrictPrivacy.Event(payload, configuration.PrivacyAllowedFields, configuration.PrivacyUserKey) : payload;
         }
 
         // See SqlStatement for what's read off the exception and how it's masked. The statement itself

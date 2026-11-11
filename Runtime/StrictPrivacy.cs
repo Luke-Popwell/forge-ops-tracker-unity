@@ -76,6 +76,24 @@ namespace ForgeOpsTracker.Unity
         }
 
         /// <summary>
+        /// The user id strict privacy sends: "h1:" and the first 32 hex characters of HMAC-SHA256 of the
+        /// id's UTF-8 text, keyed with the game's own secret (<see cref="Configuration.PrivacyUserKey"/>),
+        /// which ForgeOps never sees. The same id hashes the same under one key, so affected players can
+        /// still be counted.
+        /// </summary>
+        public static string HashedUserId(string id, string key)
+        {
+            byte[] digest;
+            using (var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(key)))
+            {
+                digest = hmac.ComputeHash(Encoding.UTF8.GetBytes(id));
+            }
+            var hex = new StringBuilder(digest.Length * 2);
+            foreach (var b in digest) hex.Append(b.ToString("x2"));
+            return "h1:" + hex.ToString(0, FingerprintLength);
+        }
+
+        /// <summary>
         /// A request or page path under strict privacy, with no query or fragment. A route template
         /// ("/levels/:id/scores", "/orders/{id}") is kept as it is: its words are a developer's and its
         /// parameters are already placeholders. A raw path keeps only its first segment (":id" when it
@@ -154,10 +172,11 @@ namespace ForgeOpsTracker.Unity
         /// "message_fingerprint" is added, computed from the message as it would otherwise have been
         /// sent (after PII scrubbing); breadcrumbs, endpoint, SQL statement and source context are
         /// dropped; context and tags keep only <paramref name="allowedFields"/> keys with plain values
-        /// (left out when nothing is left); the user keeps only its id. Modifies and returns
-        /// <paramref name="payload"/>.
+        /// (left out when nothing is left); the user is only a keyed hash of its id
+        /// (<see cref="HashedUserId"/>), and left out when there's no <paramref name="userKey"/> or no
+        /// id. Modifies and returns <paramref name="payload"/>.
         /// </summary>
-        public static Dictionary<string, object> Event(Dictionary<string, object> payload, ICollection<string> allowedFields)
+        public static Dictionary<string, object> Event(Dictionary<string, object> payload, ICollection<string> allowedFields, string userKey = null)
         {
             payload["message_fingerprint"] = MessageFingerprint(payload.TryGetValue("message", out var message) ? message as string : null);
             payload["message"] = string.Empty;
@@ -172,8 +191,10 @@ namespace ForgeOpsTracker.Unity
                 else payload.Remove(key);
             }
 
+            // A raw id can be a record number that identifies a person, and an unkeyed hash of a small
+            // number can be guessed back, so without a key no user goes at all.
             var id = UserId(payload.TryGetValue("user", out var user) ? user as Dictionary<string, object> : null);
-            if (id != null) payload["user"] = new Dictionary<string, object> { ["id"] = id };
+            if (id != null && !string.IsNullOrEmpty(userKey)) payload["user"] = new Dictionary<string, object> { ["id"] = HashedUserId(id, userKey) };
             else payload.Remove("user");
 
             if (payload.TryGetValue("backtrace", out var backtrace) && backtrace is List<Dictionary<string, object>> frames)
@@ -214,7 +235,10 @@ namespace ForgeOpsTracker.Unity
             return result;
         }
 
-        // FORGE_OPS_STRICT_PRIVACY and FORGE_OPS_PRIVACY_ALLOWED_FIELDS, for Configuration's defaults.
+        // FORGE_OPS_STRICT_PRIVACY, FORGE_OPS_PRIVACY_ALLOWED_FIELDS and FORGE_OPS_PRIVACY_USER_KEY, for
+        // Configuration's defaults. An empty key counts as unset.
+        internal static string KeyFromEnvironment(string value) => string.IsNullOrEmpty(value) ? null : value;
+
         internal static bool EnabledFromEnvironment(string value) =>
             string.Equals((value ?? string.Empty).Trim(), "true", StringComparison.OrdinalIgnoreCase);
 

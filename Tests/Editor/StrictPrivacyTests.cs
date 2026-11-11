@@ -74,7 +74,8 @@ namespace ForgeOpsTracker.Unity.Tests
                 ServerName = "device-abc",
                 CaptureSqlStatement = true,
                 StrictPrivacy = true,
-                PrivacyAllowedFields = new HashSet<string> { "error_code", "feature", "nested", "platform" }
+                PrivacyAllowedFields = new HashSet<string> { "error_code", "feature", "nested", "platform" },
+                PrivacyUserKey = null
             };
             config.AppNamespacePrefixes.Add("MyGame");
             configure?.Invoke(config);
@@ -120,6 +121,59 @@ namespace ForgeOpsTracker.Unity.Tests
                 Assert.AreEqual(vector["normalized"], StrictPrivacy.NormalizeMessage(vector["message"]), vector["message"]);
                 Assert.AreEqual(vector["fingerprint"], StrictPrivacy.MessageFingerprint(vector["message"]), vector["message"]);
             }
+        }
+
+        [Test]
+        public void EveryUserIdVectorHashesExactly()
+        {
+            var vectors = Section("user_id");
+            Assert.IsNotEmpty(vectors);
+            foreach (var vector in vectors)
+            {
+                Assert.AreEqual(vector["hashed"], StrictPrivacy.HashedUserId(vector["id"], vector["key"]), vector["id"]);
+            }
+        }
+
+        [Test]
+        public void TheUserKeyComesFromTheEnvironmentAndEmptyCountsAsUnset()
+        {
+            Assert.AreEqual("customer-secret", StrictPrivacy.KeyFromEnvironment("customer-secret"));
+            Assert.IsNull(StrictPrivacy.KeyFromEnvironment(""));
+            Assert.IsNull(StrictPrivacy.KeyFromEnvironment(null));
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FORGE_OPS_PRIVACY_USER_KEY")))
+            {
+                Assert.IsNull(new Configuration().PrivacyUserKey);
+            }
+            var config = new Configuration { PrivacyUserKey = "explicit" };
+            Assert.AreEqual("explicit", config.PrivacyUserKey);
+            config.PrivacyUserKey = "";
+            Assert.IsNull(config.PrivacyUserKey);
+        }
+
+        [Test]
+        public void AStrictEventWithAUserKeyCarriesOnlyTheHashedId()
+        {
+            var payload = Build(StrictConfiguration(c => c.PrivacyUserKey = "customer-secret"));
+
+            // The integer id 42 hashes as the text "42".
+            CollectionAssert.AreEquivalent(
+                new Dictionary<string, object> { ["id"] = "h1:316d4a35bc95112698f59ef5aac5c29a" },
+                (Dictionary<string, object>)payload["user"]);
+            StringAssert.DoesNotContain("jane", Json.Encode(payload));
+        }
+
+        [Test]
+        public void AStrictEventWithoutAUserKeyCarriesNoUser()
+        {
+            Assert.IsFalse(Build(StrictConfiguration()).ContainsKey("user"));
+            Assert.IsFalse(Build(StrictConfiguration(c => c.PrivacyUserKey = "")).ContainsKey("user"));
+
+            // A key with a blank id still sends no user.
+            var blank = StrictPrivacy.Event(
+                new Dictionary<string, object> { ["message"] = "boom", ["user"] = new Dictionary<string, object> { ["id"] = " " } },
+                null,
+                "customer-secret");
+            Assert.IsFalse(blank.ContainsKey("user"));
         }
 
         [Test]
@@ -211,7 +265,7 @@ namespace ForgeOpsTracker.Unity.Tests
             CollectionAssert.AreEquivalent(new Dictionary<string, object> { ["error_code"] = "E42", ["feature"] = 7 }, (Dictionary<string, object>)payload["context"]);
             var tags = (Dictionary<string, object>)payload["tags"];
             CollectionAssert.AreEquivalent(new[] { "platform" }, tags.Keys);
-            CollectionAssert.AreEquivalent(new Dictionary<string, object> { ["id"] = "42" }, (Dictionary<string, object>)payload["user"]);
+            Assert.IsFalse(payload.ContainsKey("user"));
             Assert.IsTrue(payload.ContainsKey("sql_objects"));
             Assert.AreEqual("4bf92f3577b34da6a3ce929d0e0e4736", payload["trace_id"]);
             StringAssert.Contains("InvalidOperationException", (string)payload["exception_class"]);
